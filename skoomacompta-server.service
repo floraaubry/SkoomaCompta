@@ -1,0 +1,15 @@
+[Unit]
+Description=SkoomaCompta WebSocket server
+After=network.target
+
+[Service]
+Type=simple
+User=flora
+Group=flora
+WorkingDirectory=/home/flora/SkoomaCompta/server
+ExecStart=/home/flora/SkoomaCompta/server/.venv/bin/python server.py
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
