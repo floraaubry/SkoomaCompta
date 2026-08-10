@@ -12,6 +12,7 @@
 <body>
 
 <div id="toast-container" class="toast-container"></div>
+<div id="connection-banner" class="connection-banner"></div>
 
 <!-- CONNECT + LOGIN SCREEN -->
 <section id="screen-connect" class="screen">
@@ -77,9 +78,11 @@
     <button class="tab-btn active" data-tab="clients"><svg class="btn-icon" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8"/></svg> Clients</button>
     <button class="tab-btn" data-tab="employees"><svg class="btn-icon" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M3 12h18"/></svg> Employés</button>
     <button class="tab-btn" data-tab="transactions"><svg class="btn-icon" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3l4 4-4 4"/><path d="M3 7h18"/><path d="M7 21l-4-4 4-4"/><path d="M21 17H3"/></svg> Transactions</button>
+    <button class="tab-btn" data-tab="contracts"><svg class="btn-icon" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2h-2"/><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M9 13l2 2 4-4"/></svg> Contrats</button>
     <button class="tab-btn" data-tab="stock"><svg class="btn-icon" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8l-9-5-9 5 9 5 9-5z"/><path d="M3 8v8l9 5 9-5V8"/><path d="M12 13v8"/></svg> Stock</button>
   </nav>
 
+  <div class="content-row">
   <main class="tab-content">
     <section id="tab-log" class="tab-pane">
       <div class="filter-bar">
@@ -118,6 +121,18 @@
       <div class="list" id="list-transactions"></div>
     </section>
 
+    <section id="tab-contracts" class="tab-pane">
+      <div class="pane-header">
+        <input type="search" class="search-input" id="contracts-search" placeholder="Rechercher un contrat...">
+        <button class="btn btn-primary" id="btn-new-contract">+ Nouveau contrat</button>
+      </div>
+      <div class="subtabs" id="contracts-subtabs">
+        <button type="button" class="subtab-btn active" data-subtab="in">Achats récurrents</button>
+        <button type="button" class="subtab-btn" data-subtab="out">Ventes récurrentes</button>
+      </div>
+      <div class="list" id="list-contracts"></div>
+    </section>
+
     <section id="tab-stock" class="tab-pane">
       <div class="pane-header">
         <input type="search" class="search-input" id="stock-search" placeholder="Rechercher un article...">
@@ -126,6 +141,27 @@
       <div class="list" id="list-stock"></div>
     </section>
   </main>
+
+  <div class="chat-dock">
+    <button type="button" id="btn-chat-toggle" class="chat-toggle" title="Discussion">
+      <svg class="btn-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+      <span class="chat-unread-badge hidden" id="chat-unread-badge">0</span>
+    </button>
+
+    <aside id="chat-panel" class="chat-panel">
+      <div class="chat-panel-inner">
+        <div class="chat-panel-header">
+          <h3>Discussion</h3>
+        </div>
+        <div class="chat-messages" id="chat-messages"></div>
+        <form id="form-chat" class="chat-form">
+          <input type="text" id="chat-input" placeholder="Écrire un message..." autocomplete="off" maxlength="2000" required>
+          <button type="submit" class="btn btn-small btn-primary">Envoyer</button>
+        </form>
+      </div>
+    </aside>
+  </div>
+  </div>
 </section>
 
 <!-- CLIENT DIALOG -->
@@ -210,6 +246,49 @@
   <div class="transaction-detail-items" id="transaction-detail-items"></div>
   <div class="dialog-actions">
     <button type="button" class="btn" data-close>Fermer</button>
+  </div>
+</dialog>
+
+<!-- CONTRACT DIALOG -->
+<dialog id="dialog-contract" class="ke-dialog wide">
+  <form id="form-contract">
+    <h2 id="contract-dialog-title">Nouveau contrat</h2>
+    <input type="hidden" id="contract-id">
+    <label>Client</label>
+    <div id="contract-client-slot" class="combobox-slot"></div>
+
+    <div class="direction-toggle">
+      <label><input type="radio" name="contract-type" value="in" checked> Achat récurrent</label>
+      <label><input type="radio" name="contract-type" value="out"> Vente récurrente</label>
+    </div>
+
+    <div class="transaction-items" id="contract-items"></div>
+    <button type="button" class="btn" id="btn-add-contract-item">+ Ajouter un produit</button>
+
+    <div class="contract-discount-row">
+      <div class="combobox-slot" id="contract-discount-slot"></div>
+      <span>Remise (%)</span>
+    </div>
+
+    <div class="transaction-total">Total : <strong id="contract-total">0</strong> septims</div>
+    <p class="error-text" id="contract-error"></p>
+    <div class="dialog-actions">
+      <button type="button" class="btn" data-close>Annuler</button>
+      <button type="submit" class="btn btn-primary">Enregistrer</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- CONTRACT CHECKOUT CONFIRMATION DIALOG -->
+<dialog id="dialog-contract-checkout" class="ke-dialog">
+  <h2>Confirmer l'encaissement</h2>
+  <p class="pay-line">Client : <strong id="contract-checkout-client"></strong></p>
+  <div class="transaction-detail-items" id="contract-checkout-items"></div>
+  <p class="pay-line pay-total">Solde : <strong id="contract-checkout-balance"></strong></p>
+  <p class="error-text" id="contract-checkout-error"></p>
+  <div class="dialog-actions">
+    <button type="button" class="btn" data-close>Annuler</button>
+    <button type="button" class="btn btn-primary" id="btn-confirm-contract-checkout">Confirmer</button>
   </div>
 </dialog>
 
@@ -298,6 +377,7 @@
 <script src="js/components.js"></script>
 <script src="js/render.js"></script>
 <script src="js/dialogs.js"></script>
+<script src="js/chat.js"></script>
 <script src="js/app.js"></script>
 </body>
 </html>

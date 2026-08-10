@@ -5,6 +5,7 @@ function renderAll() {
   renderClients();
   renderEmployees();
   renderTransactions();
+  renderContracts();
   renderStock();
 }
 
@@ -44,6 +45,10 @@ const LOG_ACTION_LABELS = {
   delete_product: 'Suppression de produit',
   create_transaction: 'Création de transaction',
   delete_transaction: 'Suppression de transaction',
+  create_contract: 'Création de contrat',
+  update_contract: 'Modification de contrat',
+  delete_contract: 'Suppression de contrat',
+  checkout_contract: 'Encaissement de contrat',
   create_backup: 'Sauvegarde créée',
   restore_backup: 'Restauration d’une sauvegarde',
   delete_backup: 'Suppression d’une sauvegarde',
@@ -264,6 +269,47 @@ function renderTransactions() {
       <div class="transaction-amount ${t.direction}">${t.direction === 'in' ? '+' : '−'}${fmtGold(t.amount)} septims</div>
       <div class="card-actions">
         <button class="btn btn-small btn-danger" data-action="delete-transaction" data-id="${t.id}">Supprimer</button>
+      </div>`;
+    container.appendChild(row);
+  });
+}
+
+let contractSubTab = 'in';
+
+function renderContracts() {
+  const q = (document.getElementById('contracts-search').value || '').trim().toLowerCase();
+  const container = document.getElementById('list-contracts');
+  const items = state.snapshot.contracts.filter((c) => {
+    if (c.type !== contractSubTab) return false;
+    if (!q) return true;
+    const client = findById(state.snapshot.clients, c.clientId);
+    return !!client && client.name.toLowerCase().includes(q);
+  });
+  container.innerHTML = '';
+  if (items.length === 0) {
+    container.innerHTML = '<p class="empty-hint">Aucun contrat pour le moment.</p>';
+    return;
+  }
+  items.forEach((c) => {
+    const client = findById(state.snapshot.clients, c.clientId);
+    const itemsSummary = c.items
+      .map((it) => {
+        const product = findById(state.snapshot.products, it.productId);
+        return `${product ? product.name : '?'} x${it.quantity}`;
+      })
+      .join(', ');
+    const discountInfo = c.discountPercent ? ` &middot; Remise ${c.discountPercent}%` : '';
+    const row = document.createElement('div');
+    row.className = 'card contract-card';
+    row.innerHTML = `
+      <div class="card-main">
+        <div class="card-title">${escapeHtml(client ? client.name : 'Client inconnu')}</div>
+        <div class="card-sub">${escapeHtml(itemsSummary)}${discountInfo}</div>
+      </div>
+      <div class="card-actions">
+        <button class="btn btn-small btn-primary" data-action="checkout-contract" data-id="${c.id}">${c.type === 'in' ? 'Payer' : 'Encaisser'}</button>
+        <button class="btn btn-small" data-action="edit-contract" data-id="${c.id}">Modifier</button>
+        <button class="btn btn-small btn-danger" data-action="delete-contract" data-id="${c.id}">Supprimer</button>
       </div>`;
     container.appendChild(row);
   });

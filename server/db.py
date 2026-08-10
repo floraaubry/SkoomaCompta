@@ -22,14 +22,16 @@ DEFAULTS = {
     "clients": [],
     "products": [],
     "transactions": [],
+    "contracts": [],
     "logs": [],
+    "chatMessages": [],
     "settings": {"autoBackupHours": 0, "lastAutoBackupAt": None},
 }
 
 # Collections included in a backup snapshot / restore. Logs and settings are
 # intentionally excluded: logs keep growing regardless of restores, and
 # settings (e.g. the auto-backup interval) shouldn't be clobbered by one.
-BACKUP_COLLECTIONS = ("shop", "users", "employees", "clients", "products", "transactions")
+BACKUP_COLLECTIONS = ("shop", "users", "employees", "clients", "products", "transactions", "contracts")
 
 _BACKUP_ID_RE = re.compile(r"^[0-9A-Za-z_-]+$")
 
@@ -41,6 +43,12 @@ def _path(name):
 def _default(name):
     default = DEFAULTS[name]
     return dict(default) if isinstance(default, dict) else list(default)
+
+
+def default_collection(name):
+    """Public form of _default(), for callers outside this module (e.g. restoring
+    an older backup that predates a collection added to BACKUP_COLLECTIONS)."""
+    return _default(name)
 
 
 def _atomic_write_json(directory, path, prefix, data):
@@ -147,7 +155,9 @@ class Database:
         self.clients = load("clients")
         self.products = load("products")
         self.transactions = load("transactions")
+        self.contracts = load("contracts")
         self.logs = load("logs")
+        self.chatMessages = load("chatMessages")
         self.settings = load("settings")
 
     def save_all(self):
@@ -166,4 +176,5 @@ class Database:
             "clients": self.clients,
             "products": self.products,
             "transactions": self.transactions,
+            "contracts": self.contracts,
         }

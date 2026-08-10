@@ -93,6 +93,13 @@ def find_transaction(db, transaction_id):
     raise LogicError("Transaction introuvable.")
 
 
+def find_contract(db, contract_id):
+    for c in db.contracts:
+        if c["id"] == contract_id:
+            return c
+    raise LogicError("Contrat introuvable.")
+
+
 # --------------------------------------------------------- setup / login --
 
 def setup_admin(db, payload):
@@ -551,6 +558,212 @@ def delete_transaction(db, payload, acting_user):
     return {"id": transaction["id"]}
 
 
+# ----------------------------------------------------------------- contracts --
+#
+# A contract is a recurring agreement with a client: a fixed list of products
+# (with quantities) and a discount, replayed each time it's checked out.
+#
+# contract["type"] is from the shop's perspective as the payer/payee, per the
+# product owner's spec: "in" = a contract where WE pay (a recurring purchase —
+# stock goes up, balance goes down), "out" = a contract where the CLIENT pays
+# US (a recurring sale — stock goes down, balance goes up). That is the
+# opposite of transaction["direction"], where "in" means money coming in. The
+# mapping below (direction = "in" if contract type == "out" else "out")
+# translates one convention to the other so checkout can reuse the same
+# stock/balance math as create_transaction.
+
+def _resolve_contract_items(db, items):
+    if not items:
+        raise LogicError("Au moins une ligne de produit est requise.")
+    resolved = []
+    for item in items:
+        product = find_product(db, item.get("productId"))
+        try:
+            quantity = int(item.get("quantity", 0))
+        except (TypeError, ValueError):
+            raise LogicError(f"Quantité invalide pour {product['name']}.")
+        if quantity <= 0:
+            raise LogicError(f"La quantité pour {product['name']} doit être supérieure à zéro.")
+        resolved.append({"productId": product["id"], "quantity": quantity})
+    return resolved
+
+
+def _contract_type_label(contract_type):
+    return "achat récurrent" if contract_type == "in" else "vente récurrente"
+
+
+def create_contract(db, payload, acting_user):
+    contract_type = payload.get("type")
+    if contract_type not in ("in", "out"):
+        raise LogicError("Le type de contrat doit être « achat » ou « vente ».")
+    client = find_client(db, payload.get("clientId"))
+
+    try:
+        discount_percent = int(payload.get("discountPercent", 0))
+    except (TypeError, ValueError):
+        raise LogicError("La remise doit être un nombre entier.")
+    if not (0 <= discount_percent <= 100):
+        raise LogicError("La remise doit être comprise entre 0 et 100.")
+
+    items = _resolve_contract_items(db, payload.get("items") or [])
+
+    contract = {
+        "id": new_id(),
+        "clientId": client["id"],
+        "type": contract_type,
+        "items": items,
+        "discountPercent": discount_percent,
+    }
+    db.contracts.append(contract)
+    log_action(
+        db, acting_user, "create_contract",
+        f"Création d'un contrat ({_contract_type_label(contract_type)}) avec « {client['name']} »."
+    )
+    db.save_one("contracts")
+    return contract
+
+
+def update_contract(db, payload, acting_user):
+    contract = find_contract(db, payload.get("id"))
+
+    if payload.get("clientId") is not None:
+        client = find_client(db, payload["clientId"])
+        contract["clientId"] = client["id"]
+
+    if payload.get("type") is not None:
+        if payload["type"] not in ("in", "out"):
+            raise LogicError("Le type de contrat doit être « achat » ou « vente ».")
+        contract["type"] = payload["type"]
+
+    if payload.get("items") is not None:
+        contract["items"] = _resolve_contract_items(db, payload["items"])
+
+    if payload.get("discountPercent") is not None:
+        try:
+            discount_percent = int(payload["discountPercent"])
+        except (TypeError, ValueError):
+            raise LogicError("La remise doit être un nombre entier.")
+        if not (0 <= discount_percent <= 100):
+            raise LogicError("La remise doit être comprise entre 0 et 100.")
+        contract["discountPercent"] = discount_percent
+
+    client = find_client(db, contract["clientId"])
+    log_action(db, acting_user, "update_contract", f"Modification du contrat avec « {client['name']} ».")
+    db.save_one("contracts")
+    return contract
+
+
+def delete_contract(db, payload, acting_user):
+    contract = find_contract(db, payload.get("id"))
+    client = find_client(db, contract["clientId"])
+    db.contracts.remove(contract)
+    log_action(db, acting_user, "delete_contract", f"Suppression du contrat avec « {client['name']} ».")
+    db.save_one("contracts")
+    return {"id": contract["id"]}
+
+
+def checkout_contract(db, payload, acting_user):
+    contract = find_contract(db, payload.get("id"))
+    client = find_client(db, contract["clientId"])
+
+    resolved = []
+    for item in contract["items"]:
+        product = find_product(db, item["productId"])
+        resolved.append({
+            "productId": product["id"],
+            "productName": product["name"],
+            "quantity": item["quantity"],
+            "unitPrice": product["sellPrice"],
+            "lineTotal": product["sellPrice"] * item["quantity"],
+        })
+    subtotal = sum(line["lineTotal"] for line in resolved)
+    discount_percent = contract.get("discountPercent", 0)
+    discount_amount = int(round(subtotal * discount_percent / 100))
+    total = subtotal - discount_amount
+
+    content = list(resolved)
+    if discount_amount:
+        content.append({"label": f"Remise ({discount_percent}%)", "amount": -discount_amount})
+
+    # See module-level note above: contract type is inverted vs. transaction direction.
+    direction = "in" if contract["type"] == "out" else "out"
+
+    if direction == "in":
+        for line in resolved:
+            product = find_product(db, line["productId"])
+            if line["quantity"] > product["quantity"]:
+                raise LogicError(
+                    f"Stock insuffisant pour {product['name']} : {product['quantity']} en stock, "
+                    f"{line['quantity']} requis pour ce contrat."
+                )
+        for line in resolved:
+            find_product(db, line["productId"])["quantity"] -= line["quantity"]
+        db.shop["balance"] = int(db.shop["balance"]) + total
+        client["totalEarned"] = int(client.get("totalEarned", 0)) + total
+        employee_id = acting_user.get("employeeId")
+        if employee_id:
+            employee = find_employee(db, employee_id)
+            employee["amountSold"] = int(employee.get("amountSold", 0)) + total
+    else:
+        for line in resolved:
+            find_product(db, line["productId"])["quantity"] += line["quantity"]
+        db.shop["balance"] = int(db.shop["balance"]) - total
+
+    transaction = {
+        "id": new_id(),
+        "name": f"Contrat — {client['name']}",
+        "direction": direction,
+        "amount": total,
+        "date": now_iso(),
+        "employeeId": acting_user.get("employeeId"),
+        "clientId": client["id"],
+        "content": content,
+        "contractId": contract["id"],
+    }
+    db.transactions.append(transaction)
+    log_action(
+        db, acting_user, "checkout_contract",
+        f"Encaissement du contrat ({_contract_type_label(contract['type'])}) avec « {client['name']} » : {total} septims."
+    )
+    db.save_all()
+    return transaction
+
+
+# --------------------------------------------------------------------- chat --
+#
+# A single shop-wide chat room, shared by everyone logged in. Not audit-logged
+# (log_action is for business actions, not casual chatter) and not part of
+# db.snapshot() or BACKUP_COLLECTIONS — like db.logs, it's delivered on demand
+# (list_chat_messages) and pushed live (server.py broadcasts a "chat_message"
+# event on send instead of a full snapshot resync).
+
+CHAT_MESSAGE_MAX_LENGTH = 2000
+CHAT_HISTORY_LIMIT = 200
+
+
+def list_chat_messages(db):
+    return db.chatMessages[-CHAT_HISTORY_LIMIT:]
+
+
+def send_chat_message(db, payload, acting_user):
+    text = (payload.get("text") or "").strip()
+    if not text:
+        raise LogicError("Le message ne peut pas être vide.")
+    if len(text) > CHAT_MESSAGE_MAX_LENGTH:
+        raise LogicError("Le message est trop long.")
+
+    message = {
+        "id": new_id(),
+        "userId": acting_user["id"],
+        "userName": acting_user["name"],
+        "text": text,
+        "timestamp": now_iso(),
+    }
+    db.chatMessages.append(message)
+    db.save_one("chatMessages")
+    return message
+
+
 # ------------------------------------------------------------------ backups --
 
 def list_backups(db):
@@ -571,7 +784,7 @@ def restore_backup(db, payload, acting_user):
     if data is None:
         raise LogicError("Sauvegarde introuvable.")
     for name in dbmod.BACKUP_COLLECTIONS:
-        setattr(db, name, data[name])
+        setattr(db, name, data.get(name, dbmod.default_collection(name)))
     db.save_all()
     log_action(db, acting_user, "restore_backup", f"Restauration depuis la sauvegarde {backup_id}.")
     return {"snapshot": db.snapshot()}

@@ -43,6 +43,7 @@ MUTATING_ACTIONS = {
     "create_employee", "update_employee", "delete_employee", "pay_employee",
     "create_product", "update_product", "delete_product",
     "create_transaction", "delete_transaction",
+    "create_contract", "update_contract", "delete_contract", "checkout_contract",
     "restore_backup",
 }
 
@@ -64,7 +65,16 @@ class Server:
             return_exceptions=True,
         )
 
-    def dispatch(self, websocket, action, payload):
+    async def broadcast_chat(self, chat_message):
+        if not self.clients:
+            return
+        message = json.dumps({"event": "chat_message", "message": chat_message})
+        await asyncio.gather(
+            *(ws.send(message) for ws in list(self.clients)),
+            return_exceptions=True,
+        )
+
+    async def dispatch(self, websocket, action, payload):
         user = self.clients.get(websocket)
 
         if action == "setup_admin":
@@ -123,6 +133,22 @@ class Server:
         if action == "delete_transaction":
             return logic.delete_transaction(self.db, payload, user)
 
+        if action == "create_contract":
+            return logic.create_contract(self.db, payload, user)
+        if action == "update_contract":
+            return logic.update_contract(self.db, payload, user)
+        if action == "delete_contract":
+            return logic.delete_contract(self.db, payload, user)
+        if action == "checkout_contract":
+            return logic.checkout_contract(self.db, payload, user)
+
+        if action == "list_chat_messages":
+            return logic.list_chat_messages(self.db)
+        if action == "send_chat_message":
+            chat_message = logic.send_chat_message(self.db, payload, user)
+            await self.broadcast_chat(chat_message)
+            return chat_message
+
         if action == "list_backups":
             return logic.list_backups(self.db)
         if action == "create_backup":
@@ -151,7 +177,7 @@ class Server:
 
         success = False
         try:
-            data = self.dispatch(websocket, action, payload)
+            data = await self.dispatch(websocket, action, payload)
             success = True
             await websocket.send(json.dumps({"reqId": req_id, "ok": True, "data": data}))
         except logic.LogicError as e:

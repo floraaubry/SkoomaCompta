@@ -6,16 +6,35 @@ const AUTOCONNECT_KEY = 'ke_autoconnect'; // '1' — only present alongside REME
 let sessionCreds = null; // { name, password } — memory only, used to silently re-auth on reconnect
 let pendingLogin = null; // { name, password } for a freshly-submitted connect form, consumed by onHello
 let pendingPersist = null; // { server, name, password, remember, autoConnect } to save after a successful fresh login
+let reconnecting = false; // true between a dropped connection and the auto-reconnect login resolving
+let connectionBannerTimer = null;
+
+function showConnectionBanner(message, type, autoHideMs) {
+  const el = document.getElementById('connection-banner');
+  clearTimeout(connectionBannerTimer);
+  el.textContent = message;
+  el.className = `connection-banner show ${type}`;
+  if (autoHideMs) {
+    connectionBannerTimer = setTimeout(() => el.classList.remove('show'), autoHideMs);
+  }
+}
+
+function hideConnectionBanner() {
+  clearTimeout(connectionBannerTimer);
+  document.getElementById('connection-banner').classList.remove('show');
+}
 
 document.addEventListener('DOMContentLoaded', () => {
   wireConnectForm();
   wireSetupForm();
   wireTabs();
+  wireContractSubtabs();
   wireSearchInputs();
   wireNewButtons();
   wireListActions();
   wireLogout();
   wireManageUsers();
+  initChat();
 
   ke.on('hello', onHello);
   ke.on('sync', onSync);
@@ -31,7 +50,10 @@ function goToConnectScreen() {
   pendingLogin = null;
   pendingPersist = null;
   state.user = null;
+  reconnecting = false;
   ke.disconnect();
+  resetChatState();
+  hideConnectionBanner();
   showScreen('screen-connect');
 }
 
@@ -161,6 +183,11 @@ async function onHello(msg) {
       statusEl.textContent = '';
       showScreen('screen-main');
       renderAll();
+      restoreLastTab();
+      if (reconnecting) {
+        reconnecting = false;
+        showConnectionBanner('Reconnecté.', 'success', 2000);
+      }
       return;
     } catch (err) {
       pendingLogin = null;
@@ -168,6 +195,10 @@ async function onHello(msg) {
       sessionCreds = null;
       statusEl.textContent = err.message;
       statusEl.classList.add('error-text');
+      if (reconnecting) {
+        reconnecting = false;
+        hideConnectionBanner();
+      }
       return;
     }
   }
@@ -186,7 +217,8 @@ function onSync(msg) {
 
 function onDisconnected() {
   if (currentScreenId() === 'screen-main') {
-    toast('Connexion perdue. Reconnexion en cours...', 'error');
+    reconnecting = true;
+    showConnectionBanner('Connexion perdue. Reconnexion en cours...', 'error');
   }
 }
 
@@ -210,6 +242,7 @@ function wireSetupForm() {
       setSnapshot(data.snapshot);
       showScreen('screen-main');
       renderAll();
+      restoreLastTab();
     } catch (err) {
       errorEl.textContent = err.message;
     }
@@ -222,7 +255,10 @@ function wireLogout() {
     pendingLogin = null;
     pendingPersist = null;
     state.user = null;
+    reconnecting = false;
     ke.disconnect();
+    resetChatState();
+    hideConnectionBanner();
     document.getElementById('connect-status').textContent = '';
     showScreen('screen-connect');
   });
@@ -230,14 +266,43 @@ function wireLogout() {
 
 /* -------------------------------------------------------------------- ui */
 
+const LAST_TAB_KEY_PREFIX = 'ke_last_tab_';
+
+function lastTabKey() {
+  return LAST_TAB_KEY_PREFIX + (state.user ? state.user.name : '');
+}
+
+function activateTab(tabName) {
+  const btn = document.querySelector(`.tab-btn[data-tab="${tabName}"]`);
+  const pane = document.getElementById('tab-' + tabName);
+  if (!btn || !pane || btn.classList.contains('hidden')) return false;
+  document.querySelectorAll('.tab-btn').forEach((b) => b.classList.remove('active'));
+  document.querySelectorAll('.tab-pane').forEach((p) => p.classList.remove('active'));
+  btn.classList.add('active');
+  pane.classList.add('active');
+  if (tabName === 'log') renderLog();
+  localStorage.setItem(lastTabKey(), tabName);
+  return true;
+}
+
+function restoreLastTab() {
+  const last = localStorage.getItem(lastTabKey());
+  if (last) activateTab(last);
+}
+
 function wireTabs() {
   document.querySelectorAll('.tab-btn').forEach((btn) => {
+    btn.addEventListener('click', () => activateTab(btn.dataset.tab));
+  });
+}
+
+function wireContractSubtabs() {
+  document.querySelectorAll('#contracts-subtabs .subtab-btn').forEach((btn) => {
     btn.addEventListener('click', () => {
-      document.querySelectorAll('.tab-btn').forEach((b) => b.classList.remove('active'));
-      document.querySelectorAll('.tab-pane').forEach((p) => p.classList.remove('active'));
+      document.querySelectorAll('#contracts-subtabs .subtab-btn').forEach((b) => b.classList.remove('active'));
       btn.classList.add('active');
-      document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
-      if (btn.dataset.tab === 'log') renderLog();
+      contractSubTab = btn.dataset.subtab;
+      renderContracts();
     });
   });
 }
@@ -246,6 +311,7 @@ function wireSearchInputs() {
   document.getElementById('clients-search').addEventListener('input', renderClients);
   document.getElementById('employees-search').addEventListener('input', renderEmployees);
   document.getElementById('transactions-search').addEventListener('input', renderTransactions);
+  document.getElementById('contracts-search').addEventListener('input', renderContracts);
   document.getElementById('stock-search').addEventListener('input', renderStock);
 }
 
@@ -253,6 +319,7 @@ function wireNewButtons() {
   document.getElementById('btn-new-client').addEventListener('click', () => openClientDialog());
   document.getElementById('btn-new-employee').addEventListener('click', () => openEmployeeDialog());
   document.getElementById('btn-new-transaction').addEventListener('click', () => openTransactionDialog());
+  document.getElementById('btn-new-contract').addEventListener('click', () => openContractDialog());
   document.getElementById('btn-new-product').addEventListener('click', () => openProductDialog());
 }
 
@@ -266,6 +333,7 @@ function wireListActions() {
   document.getElementById('list-employees').addEventListener('click', handleEmployeeAction);
   document.getElementById('list-stock').addEventListener('click', handleStockAction);
   document.getElementById('list-transactions').addEventListener('click', handleTransactionAction);
+  document.getElementById('list-contracts').addEventListener('click', handleContractAction);
 }
 
 function handleClientAction(e) {
@@ -315,6 +383,22 @@ function handleTransactionAction(e) {
   const transaction = findById(state.snapshot.transactions, row.dataset.id);
   if (!transaction) return;
   openTransactionDetailDialog(transaction);
+}
+
+function handleContractAction(e) {
+  const btn = e.target.closest('button[data-action]');
+  if (!btn) return;
+  const id = btn.dataset.id;
+  const contract = findById(state.snapshot.contracts, id);
+  if (!contract) return;
+  if (btn.dataset.action === 'edit-contract') openContractDialog(contract);
+  if (btn.dataset.action === 'checkout-contract') openContractCheckoutDialog(contract);
+  if (btn.dataset.action === 'delete-contract') {
+    const client = findById(state.snapshot.clients, contract.clientId);
+    confirmDelete(`Supprimer le contrat avec « ${client ? client.name : 'ce client'} » ?`, () => {
+      ke.request('delete_contract', { id }).catch((err) => toast(err.message, 'error'));
+    });
+  }
 }
 
 function handleStockAction(e) {

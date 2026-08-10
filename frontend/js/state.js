@@ -8,6 +8,7 @@ const state = {
     clients: [],
     products: [],
     transactions: [],
+    contracts: [],
   },
   user: null, // currently logged in user (public fields only)
 };

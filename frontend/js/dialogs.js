@@ -307,6 +307,201 @@ function openTransactionDetailDialog(transaction) {
   document.getElementById('dialog-transaction-detail').showModal();
 }
 
+/* --------------------------------------------------------- contract dialog */
+
+let contractClientCombobox = null;
+let contractItemRows = [];
+let contractDiscountSpinbox = null;
+
+function contractType() {
+  return document.querySelector('input[name="contract-type"]:checked').value;
+}
+
+function openContractDialog(contract) {
+  document.getElementById('contract-dialog-title').textContent = contract ? 'Modifier le contrat' : 'Nouveau contrat';
+  document.getElementById('contract-id').value = contract ? contract.id : '';
+  document.getElementById('contract-error').textContent = '';
+  document.getElementById('contract-items').innerHTML = '';
+  contractItemRows = [];
+
+  const clientSlot = document.getElementById('contract-client-slot');
+  clientSlot.innerHTML = '';
+  contractClientCombobox = createCombobox({
+    items: state.snapshot.clients,
+    getId: (c) => c.id,
+    getLabel: (c) => c.name,
+    placeholder: 'Rechercher un client...',
+    initialId: contract ? contract.clientId : null,
+  });
+  clientSlot.appendChild(contractClientCombobox.root);
+
+  document.querySelectorAll('input[name="contract-type"]').forEach((radio) => {
+    radio.checked = radio.value === (contract ? contract.type : 'in');
+  });
+
+  const discountSlot = document.getElementById('contract-discount-slot');
+  discountSlot.innerHTML = '';
+  contractDiscountSpinbox = createSpinbox({
+    min: 0,
+    max: 100,
+    step: 1,
+    value: contract ? contract.discountPercent || 0 : 0,
+    onChange: updateContractTotal,
+  });
+  discountSlot.appendChild(contractDiscountSpinbox.root);
+
+  if (contract && contract.items.length) {
+    contract.items.forEach((it) => addContractItemRow(it.productId, it.quantity));
+  } else {
+    addContractItemRow();
+  }
+  updateContractTotal();
+  document.getElementById('dialog-contract').showModal();
+}
+
+function addContractItemRow(initialProductId, initialQuantity) {
+  const row = document.createElement('div');
+  row.className = 'transaction-item-row';
+
+  const comboSlot = document.createElement('div');
+  comboSlot.className = 'transaction-item-product';
+
+  const spinbox = createSpinbox({ min: 1, value: initialQuantity || 1, step: 1, onChange: updateContractTotal });
+
+  const combobox = createCombobox({
+    items: state.snapshot.products,
+    getId: (p) => p.id,
+    getLabel: (p) => `${p.name} (${p.quantity} en stock, ${fmtGold(p.sellPrice)} septims)`,
+    placeholder: 'Rechercher un produit...',
+    initialId: initialProductId || null,
+    onSelect: updateContractTotal,
+  });
+  comboSlot.appendChild(combobox.root);
+
+  const removeBtn = document.createElement('button');
+  removeBtn.type = 'button';
+  removeBtn.className = 'btn btn-small btn-danger';
+  removeBtn.textContent = 'Retirer';
+  removeBtn.addEventListener('click', () => {
+    row.remove();
+    contractItemRows = contractItemRows.filter((r) => r.rowEl !== row);
+    updateContractTotal();
+  });
+
+  row.appendChild(comboSlot);
+  row.appendChild(spinbox.root);
+  row.appendChild(removeBtn);
+  document.getElementById('contract-items').appendChild(row);
+
+  contractItemRows.push({ rowEl: row, combobox, spinbox });
+}
+
+document.getElementById('btn-add-contract-item').addEventListener('click', () => addContractItemRow());
+
+function updateContractTotal() {
+  let subtotal = 0;
+  contractItemRows.forEach((r) => {
+    const id = r.combobox.getValue();
+    const product = id ? findById(state.snapshot.products, id) : null;
+    if (product) subtotal += product.sellPrice * r.spinbox.getValue();
+  });
+  const discountPercent = contractDiscountSpinbox ? contractDiscountSpinbox.getValue() : 0;
+  const total = subtotal - Math.round((subtotal * discountPercent) / 100);
+  document.getElementById('contract-total').textContent = fmtGold(total);
+}
+
+document.getElementById('form-contract').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const errorEl = document.getElementById('contract-error');
+  errorEl.textContent = '';
+  const id = document.getElementById('contract-id').value;
+  const clientId = contractClientCombobox.getValue();
+  if (!clientId) {
+    errorEl.textContent = 'Sélectionnez un client.';
+    return;
+  }
+  const items = contractItemRows
+    .map((r) => ({ productId: r.combobox.getValue(), quantity: r.spinbox.getValue() }))
+    .filter((i) => i.productId);
+  if (items.length === 0) {
+    errorEl.textContent = 'Ajoutez au moins un produit.';
+    return;
+  }
+  const payload = {
+    clientId,
+    type: contractType(),
+    items,
+    discountPercent: contractDiscountSpinbox.getValue(),
+  };
+  try {
+    if (id) {
+      payload.id = id;
+      await ke.request('update_contract', payload);
+    } else {
+      await ke.request('create_contract', payload);
+    }
+    document.getElementById('dialog-contract').close();
+  } catch (err) {
+    errorEl.textContent = err.message;
+  }
+});
+
+/* ------------------------------------------------------ contract checkout */
+
+let checkoutContractTarget = null;
+
+function openContractCheckoutDialog(contract) {
+  checkoutContractTarget = contract;
+  const client = findById(state.snapshot.clients, contract.clientId);
+  document.getElementById('contract-checkout-client').textContent = client ? client.name : 'Client inconnu';
+  document.getElementById('contract-checkout-error').textContent = '';
+
+  let subtotal = 0;
+  const itemsEl = document.getElementById('contract-checkout-items');
+  itemsEl.innerHTML = '';
+  contract.items.forEach((it) => {
+    const product = findById(state.snapshot.products, it.productId);
+    subtotal += product ? product.sellPrice * it.quantity : 0;
+    const stockDelta = contract.type === 'in' ? it.quantity : -it.quantity;
+    const line = document.createElement('div');
+    line.className = 'transaction-detail-item';
+    line.innerHTML = `
+      <span>${escapeHtml(product ? product.name : '?')} x${it.quantity}</span>
+      <span class="transaction-amount ${stockDelta >= 0 ? 'in' : 'out'}">${stockDelta >= 0 ? '+' : '−'}${Math.abs(stockDelta)} en stock</span>`;
+    itemsEl.appendChild(line);
+  });
+
+  const discountPercent = contract.discountPercent || 0;
+  const discountAmount = Math.round((subtotal * discountPercent) / 100);
+  const total = subtotal - discountAmount;
+  if (discountAmount) {
+    const line = document.createElement('div');
+    line.className = 'transaction-detail-item';
+    line.innerHTML = `<span>Remise (${discountPercent}%)</span><span class="transaction-amount out">−${fmtGold(discountAmount)} septims</span>`;
+    itemsEl.appendChild(line);
+  }
+
+  const balanceDelta = contract.type === 'in' ? -total : total;
+  const balanceEl = document.getElementById('contract-checkout-balance');
+  balanceEl.textContent = `${balanceDelta >= 0 ? '+' : '−'}${fmtGold(Math.abs(balanceDelta))} septims`;
+  balanceEl.className = balanceDelta >= 0 ? 'transaction-amount in' : 'transaction-amount out';
+
+  document.getElementById('dialog-contract-checkout').showModal();
+}
+
+document.getElementById('btn-confirm-contract-checkout').addEventListener('click', async () => {
+  if (!checkoutContractTarget) return;
+  const errorEl = document.getElementById('contract-checkout-error');
+  errorEl.textContent = '';
+  try {
+    await ke.request('checkout_contract', { id: checkoutContractTarget.id });
+    document.getElementById('dialog-contract-checkout').close();
+    toast('Contrat encaissé.', 'info');
+  } catch (err) {
+    errorEl.textContent = err.message;
+  }
+});
+
 /* ------------------------------------------------------------- pay dialog */
 
 let payCommissionSpinbox = null;
