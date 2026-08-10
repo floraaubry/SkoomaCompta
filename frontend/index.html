@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SkoomaCompta</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@400;700&family=Cinzel:wght@400;600;700&family=Spectral:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<div id="toast-container" class="toast-container"></div>
+
+<!-- CONNECT + LOGIN SCREEN -->
+<section id="screen-connect" class="screen">
+  <div class="parchment-panel">
+    <h1 class="title">Skooma Compta</h1>
+    <form id="form-connect">
+      <label>Adresse du serveur
+        <input type="text" id="input-server" placeholder="localhost:8765" required>
+      </label>
+      <label>Nom d'utilisateur
+        <input type="text" id="login-name" required autocomplete="username">
+      </label>
+      <label>Mot de passe
+        <input type="password" id="login-password" required autocomplete="current-password">
+      </label>
+      <label class="checkbox-label"><input type="checkbox" id="remember-me"> Se souvenir de moi</label>
+      <label class="checkbox-label"><input type="checkbox" id="auto-connect"> Connexion automatique</label>
+      <button type="submit" class="btn btn-primary btn-block">Connexion</button>
+    </form>
+    <p id="connect-status" class="status-text"></p>
+  </div>
+</section>
+
+<!-- SETUP SCREEN (first run, no users on server) -->
+<section id="screen-setup" class="screen hidden">
+  <div class="parchment-panel">
+    <h1 class="title">Un registre vide</h1>
+    <p class="subtitle">Aucun marchand n'est encore enregistré sur ce serveur. Configurez votre boutique et votre compte administrateur.</p>
+    <form id="form-setup">
+      <label>Nom de la boutique <input type="text" id="setup-shop-name" required></label>
+      <label>Solde de départ (septims) <input type="number" id="setup-balance" value="0" step="1" min="0"></label>
+      <hr>
+      <label>Nom d'utilisateur administrateur <input type="text" id="setup-admin-name" required autocomplete="off"></label>
+      <label>Mot de passe administrateur <input type="password" id="setup-admin-password" required autocomplete="new-password"></label>
+      <button type="submit" class="btn btn-primary btn-block">Ouvrir la boutique</button>
+    </form>
+    <p id="setup-error" class="error-text"></p>
+    <button type="button" class="btn btn-link" id="btn-setup-change-server">Changer de serveur</button>
+  </div>
+</section>
+
+<!-- MAIN APP -->
+<section id="screen-main" class="screen hidden">
+  <header class="topbar">
+    <div class="shop-identity">
+      <h1 id="main-shop-name">Boutique</h1>
+    </div>
+    <div class="balance-display">
+      <span class="coin-icon">&#9775;</span>
+      <span id="balance-amount">0</span>
+      <span class="gold-label">septims</span>
+    </div>
+    <div class="user-info">
+      <span id="current-user-name" class="current-user-name"></span>
+      <button id="btn-manage-users" class="btn btn-small hidden"><svg class="btn-icon" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="15" r="4"/><path d="M11 12l9-9"/><path d="M17 6l3 3"/><path d="M14 9l2 2"/></svg> Utilisateurs</button>
+      <button id="btn-backup" class="btn btn-small hidden"><svg class="btn-icon" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h12l4 4v12H4z"/><path d="M8 4v6h8V4"/><path d="M8 20v-6h8v6"/></svg> Sauvegardes</button>
+      <button id="btn-logout" class="btn btn-small"><svg class="btn-icon" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></svg> Déconnexion</button>
+    </div>
+  </header>
+
+  <nav class="tabs">
+    <button class="tab-btn hidden" data-tab="log" id="tab-btn-log"><svg class="btn-icon" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16v16H4z"/><path d="M8 9h8M8 13h8M8 17h5"/></svg> Journal</button>
+    <button class="tab-btn active" data-tab="clients"><svg class="btn-icon" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8"/></svg> Clients</button>
+    <button class="tab-btn" data-tab="employees"><svg class="btn-icon" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M3 12h18"/></svg> Employés</button>
+    <button class="tab-btn" data-tab="transactions"><svg class="btn-icon" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3l4 4-4 4"/><path d="M3 7h18"/><path d="M7 21l-4-4 4-4"/><path d="M21 17H3"/></svg> Transactions</button>
+    <button class="tab-btn" data-tab="stock"><svg class="btn-icon" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8l-9-5-9 5 9 5 9-5z"/><path d="M3 8v8l9 5 9-5V8"/><path d="M12 13v8"/></svg> Stock</button>
+  </nav>
+
+  <main class="tab-content">
+    <section id="tab-log" class="tab-pane">
+      <div class="filter-bar">
+        <select id="log-filter-user" class="filter-select"></select>
+        <select id="log-filter-action" class="filter-select"></select>
+      </div>
+      <div class="log-list" id="log-list"></div>
+    </section>
+
+    <section id="tab-clients" class="tab-pane active">
+      <div class="pane-header">
+        <input type="search" class="search-input" id="clients-search" placeholder="Rechercher un client...">
+        <button class="btn btn-primary" id="btn-new-client">+ Nouveau client</button>
+      </div>
+      <div class="list" id="list-clients"></div>
+    </section>
+
+    <section id="tab-employees" class="tab-pane">
+      <div class="pane-header">
+        <input type="search" class="search-input" id="employees-search" placeholder="Rechercher un employé...">
+        <button class="btn btn-primary" id="btn-new-employee">+ Nouvel employé</button>
+      </div>
+      <div class="list" id="list-employees"></div>
+    </section>
+
+    <section id="tab-transactions" class="tab-pane">
+      <div class="pane-header">
+        <input type="search" class="search-input" id="transactions-search" placeholder="Rechercher une transaction...">
+        <button class="btn btn-primary" id="btn-new-transaction">+ Nouvelle transaction</button>
+      </div>
+      <div class="filter-bar">
+        <select id="transactions-filter-client" class="filter-select"></select>
+        <select id="transactions-filter-employee" class="filter-select"></select>
+        <select id="transactions-filter-direction" class="filter-select"></select>
+      </div>
+      <div class="list" id="list-transactions"></div>
+    </section>
+
+    <section id="tab-stock" class="tab-pane">
+      <div class="pane-header">
+        <input type="search" class="search-input" id="stock-search" placeholder="Rechercher un article...">
+        <button class="btn btn-primary" id="btn-new-product">+ Nouveau produit</button>
+      </div>
+      <div class="list" id="list-stock"></div>
+    </section>
+  </main>
+</section>
+
+<!-- CLIENT DIALOG -->
+<dialog id="dialog-client" class="ke-dialog">
+  <form id="form-client">
+    <h2 id="client-dialog-title">Nouveau client</h2>
+    <input type="hidden" id="client-id">
+    <label>Nom <input type="text" id="client-name" required></label>
+    <label>Note <textarea id="client-note" rows="3"></textarea></label>
+    <p class="error-text" id="client-error"></p>
+    <div class="dialog-actions">
+      <button type="button" class="btn" data-close>Annuler</button>
+      <button type="submit" class="btn btn-primary">Enregistrer</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- EMPLOYEE DIALOG -->
+<dialog id="dialog-employee" class="ke-dialog">
+  <form id="form-employee">
+    <h2 id="employee-dialog-title">Nouvel employé</h2>
+    <input type="hidden" id="employee-id">
+    <label>Nom <input type="text" id="employee-name" required></label>
+    <label>Salaire (septims) <input type="number" id="employee-salary" min="0" step="1" value="0"></label>
+    <label>Note <textarea id="employee-note" rows="3"></textarea></label>
+    <p class="error-text" id="employee-error"></p>
+    <div class="dialog-actions">
+      <button type="button" class="btn" data-close>Annuler</button>
+      <button type="submit" class="btn btn-primary">Enregistrer</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- PRODUCT DIALOG -->
+<dialog id="dialog-product" class="ke-dialog">
+  <form id="form-product">
+    <h2 id="product-dialog-title">Nouveau produit</h2>
+    <input type="hidden" id="product-id">
+    <label>Nom <input type="text" id="product-name" required></label>
+    <label>Quantité</label>
+    <div class="combobox-slot" id="product-quantity-slot"></div>
+    <label>Prix de vente (septims)</label>
+    <div class="combobox-slot" id="product-sell-price-slot"></div>
+    <p class="error-text" id="product-error"></p>
+    <div class="dialog-actions">
+      <button type="button" class="btn" data-close>Annuler</button>
+      <button type="submit" class="btn btn-primary">Enregistrer</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- TRANSACTION DIALOG -->
+<dialog id="dialog-transaction" class="ke-dialog wide">
+  <form id="form-transaction">
+    <h2>Nouvelle transaction</h2>
+    <label>Client</label>
+    <div id="transaction-client-slot" class="combobox-slot"></div>
+
+    <div class="direction-toggle">
+      <label><input type="radio" name="direction" value="in" checked> Entrée &mdash; vente au client</label>
+      <label><input type="radio" name="direction" value="out"> Sortie &mdash; achat au client</label>
+    </div>
+
+    <div class="transaction-items" id="transaction-items"></div>
+    <button type="button" class="btn" id="btn-add-transaction-item">+ Ajouter un produit</button>
+
+    <div class="transaction-total">Total : <strong id="transaction-total">0</strong> septims</div>
+    <p class="error-text" id="transaction-error"></p>
+    <div class="dialog-actions">
+      <button type="button" class="btn" data-close>Annuler</button>
+      <button type="submit" class="btn btn-primary">Confirmer</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- TRANSACTION DETAIL DIALOG -->
+<dialog id="dialog-transaction-detail" class="ke-dialog">
+  <h2 id="transaction-detail-title"></h2>
+  <p class="pay-line">Date : <strong id="transaction-detail-date"></strong></p>
+  <p class="pay-line">Employé : <strong id="transaction-detail-employee"></strong></p>
+  <p class="pay-line">Montant : <strong id="transaction-detail-amount"></strong></p>
+  <div class="transaction-detail-items" id="transaction-detail-items"></div>
+  <div class="dialog-actions">
+    <button type="button" class="btn" data-close>Fermer</button>
+  </div>
+</dialog>
+
+<!-- PAY EMPLOYEE DIALOG -->
+<dialog id="dialog-pay" class="ke-dialog">
+  <form id="form-pay">
+    <h2>Payer <span id="pay-employee-name"></span></h2>
+    <input type="hidden" id="pay-employee-id">
+    <p class="pay-line">Salaire : <strong id="pay-salary">0</strong> septims</p>
+    <p class="pay-line">Montant vendu cette période : <strong id="pay-amount-sold">0</strong> septims</p>
+    <label>Commission (prime)</label>
+    <div class="combobox-slot" id="pay-commission-slot"></div>
+    <p class="pay-line pay-total">Total à payer : <strong id="pay-total">0</strong> septims</p>
+    <p class="error-text" id="pay-error"></p>
+    <div class="dialog-actions">
+      <button type="button" class="btn" data-close>Annuler</button>
+      <button type="submit" class="btn btn-primary">Payer</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- MANAGE USERS DIALOG (admin only) -->
+<dialog id="dialog-users" class="ke-dialog wide">
+  <div class="dialog-header">
+    <h2>Gérer les utilisateurs</h2>
+    <button type="button" class="btn btn-small" data-close>Fermer</button>
+  </div>
+  <div class="users-toolbar">
+    <button type="button" class="btn btn-primary" id="btn-new-user">+ Ajouter un utilisateur</button>
+  </div>
+  <div class="users-list" id="users-list"></div>
+</dialog>
+
+<!-- CREATE/EDIT USER DIALOG (admin only) -->
+<dialog id="dialog-user-form" class="ke-dialog">
+  <form id="form-user">
+    <h2 id="user-form-title">Nouvel utilisateur</h2>
+    <input type="hidden" id="user-id">
+    <label>Nom d'utilisateur <input type="text" id="user-name" required autocomplete="off"></label>
+    <label>Mot de passe <input type="password" id="user-password" autocomplete="new-password"></label>
+    <label>Employé associé</label>
+    <div class="combobox-slot" id="user-employee-combobox-slot"></div>
+    <label class="checkbox-label"><input type="checkbox" id="user-is-admin"> Administrateur</label>
+    <p class="error-text" id="user-error"></p>
+    <div class="dialog-actions">
+      <button type="button" class="btn" data-close>Annuler</button>
+      <button type="submit" class="btn btn-primary">Enregistrer</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- BACKUP DIALOG (admin only) -->
+<dialog id="dialog-backup" class="ke-dialog wide">
+  <div class="dialog-header">
+    <h2>Sauvegardes</h2>
+    <button type="button" class="btn btn-small btn-primary" id="btn-create-backup">+ Sauvegarde manuelle</button>
+  </div>
+
+  <div class="backup-settings-row">
+    <label>Sauvegarde automatique toutes les
+      <input type="number" id="backup-auto-hours" min="0" step="1" value="0">
+    </label>
+    <span class="backup-settings-hint">heure(s) &mdash; 0 pour désactiver</span>
+  </div>
+  <p class="error-text" id="backup-settings-error"></p>
+
+  <div class="backup-list" id="backup-list"></div>
+  <p class="error-text" id="backup-error"></p>
+
+  <div class="dialog-actions">
+    <button type="button" class="btn" data-close>Fermer</button>
+  </div>
+</dialog>
+
+<!-- CONFIRM DIALOG -->
+<dialog id="dialog-confirm" class="ke-dialog narrow">
+  <p id="confirm-message"></p>
+  <div class="dialog-actions">
+    <button type="button" class="btn" id="confirm-no">Annuler</button>
+    <button type="button" class="btn btn-danger" id="confirm-yes">Supprimer</button>
+  </div>
+</dialog>
+
+<script src="js/ws.js"></script>
+<script src="js/state.js"></script>
+<script src="js/components.js"></script>
+<script src="js/render.js"></script>
+<script src="js/dialogs.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
