@@ -43,7 +43,7 @@
     <p class="subtitle">Aucun marchand n'est encore enregistré sur ce serveur. Configurez votre boutique et votre compte administrateur.</p>
     <form id="form-setup">
       <label>Nom de la boutique <input type="text" id="setup-shop-name" required></label>
-      <label>Solde de départ (septims) <input type="number" id="setup-balance" value="0" step="1" min="0"></label>
+      <label>Solde de départ (septims) <input type="number" id="setup-balance" value="0" step="0.01" min="0"></label>
       <hr>
       <label>Nom d'utilisateur administrateur <input type="text" id="setup-admin-name" required autocomplete="off"></label>
       <label>Mot de passe administrateur <input type="password" id="setup-admin-password" required autocomplete="new-password"></label>
@@ -80,6 +80,7 @@
     <button class="tab-btn" data-tab="transactions"><svg class="btn-icon" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3l4 4-4 4"/><path d="M3 7h18"/><path d="M7 21l-4-4 4-4"/><path d="M21 17H3"/></svg> Transactions</button>
     <button class="tab-btn" data-tab="contracts"><svg class="btn-icon" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2h-2"/><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M9 13l2 2 4-4"/></svg> Contrats</button>
     <button class="tab-btn" data-tab="stock"><svg class="btn-icon" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8l-9-5-9 5 9 5 9-5z"/><path d="M3 8v8l9 5 9-5V8"/><path d="M12 13v8"/></svg> Stock</button>
+    <button class="tab-btn" data-tab="recettes"><svg class="btn-icon" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3v6a2 2 0 0 0 2 2h0a2 2 0 0 0 2-2V3"/><path d="M8 11v10"/><path d="M18 3c-2 0-3 2-3 5s1 4 3 4"/><path d="M18 3v18"/></svg> Recettes</button>
   </nav>
 
   <div class="content-row">
@@ -140,6 +141,14 @@
       </div>
       <div class="list" id="list-stock"></div>
     </section>
+
+    <section id="tab-recettes" class="tab-pane">
+      <div class="pane-header">
+        <input type="search" class="search-input" id="recettes-search" placeholder="Rechercher une recette...">
+        <button class="btn btn-primary" id="btn-new-recipe">+ Nouvelle recette</button>
+      </div>
+      <div class="list" id="list-recettes"></div>
+    </section>
   </main>
 
   <div class="chat-dock">
@@ -185,7 +194,7 @@
     <h2 id="employee-dialog-title">Nouvel employé</h2>
     <input type="hidden" id="employee-id">
     <label>Nom <input type="text" id="employee-name" required></label>
-    <label>Salaire (septims) <input type="number" id="employee-salary" min="0" step="1" value="0"></label>
+    <label>Salaire (septims) <input type="number" id="employee-salary" min="0" step="0.01" value="0"></label>
     <label>Note <textarea id="employee-note" rows="3"></textarea></label>
     <p class="error-text" id="employee-error"></p>
     <div class="dialog-actions">
@@ -206,6 +215,30 @@
     <label>Prix de vente (septims)</label>
     <div class="combobox-slot" id="product-sell-price-slot"></div>
     <p class="error-text" id="product-error"></p>
+    <div class="dialog-actions">
+      <button type="button" class="btn" data-close>Annuler</button>
+      <button type="submit" class="btn btn-primary">Enregistrer</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- RECIPE DIALOG -->
+<dialog id="dialog-recipe" class="ke-dialog wide">
+  <form id="form-recipe">
+    <h2 id="recipe-dialog-title">Nouvelle recette</h2>
+    <input type="hidden" id="recipe-id">
+
+    <label>Produit fabriqué</label>
+    <div class="transaction-item-row recipe-output-row">
+      <div class="transaction-item-product" id="recipe-output-slot"></div>
+      <div id="recipe-output-quantity-slot"></div>
+    </div>
+
+    <label>Ingrédients</label>
+    <div class="transaction-items" id="recipe-ingredients"></div>
+    <button type="button" class="btn" id="btn-add-recipe-ingredient">+ Ajouter un ingrédient</button>
+
+    <p class="error-text" id="recipe-error"></p>
     <div class="dialog-actions">
       <button type="button" class="btn" data-close>Annuler</button>
       <button type="submit" class="btn btn-primary">Enregistrer</button>

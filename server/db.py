@@ -23,6 +23,7 @@ DEFAULTS = {
     "products": [],
     "transactions": [],
     "contracts": [],
+    "recipes": [],
     "logs": [],
     "chatMessages": [],
     "settings": {"autoBackupHours": 0, "lastAutoBackupAt": None},
@@ -31,7 +32,7 @@ DEFAULTS = {
 # Collections included in a backup snapshot / restore. Logs and settings are
 # intentionally excluded: logs keep growing regardless of restores, and
 # settings (e.g. the auto-backup interval) shouldn't be clobbered by one.
-BACKUP_COLLECTIONS = ("shop", "users", "employees", "clients", "products", "transactions", "contracts")
+BACKUP_COLLECTIONS = ("shop", "users", "employees", "clients", "products", "transactions", "contracts", "recipes")
 
 _BACKUP_ID_RE = re.compile(r"^[0-9A-Za-z_-]+$")
 
@@ -156,6 +157,7 @@ class Database:
         self.products = load("products")
         self.transactions = load("transactions")
         self.contracts = load("contracts")
+        self.recipes = load("recipes")
         self.logs = load("logs")
         self.chatMessages = load("chatMessages")
         self.settings = load("settings")
@@ -177,4 +179,5 @@ class Database:
             "products": self.products,
             "transactions": self.transactions,
             "contracts": self.contracts,
+            "recipes": self.recipes,
         }

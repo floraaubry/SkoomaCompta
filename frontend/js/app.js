@@ -313,6 +313,7 @@ function wireSearchInputs() {
   document.getElementById('transactions-search').addEventListener('input', renderTransactions);
   document.getElementById('contracts-search').addEventListener('input', renderContracts);
   document.getElementById('stock-search').addEventListener('input', renderStock);
+  document.getElementById('recettes-search').addEventListener('input', renderRecettes);
 }
 
 function wireNewButtons() {
@@ -321,6 +322,7 @@ function wireNewButtons() {
   document.getElementById('btn-new-transaction').addEventListener('click', () => openTransactionDialog());
   document.getElementById('btn-new-contract').addEventListener('click', () => openContractDialog());
   document.getElementById('btn-new-product').addEventListener('click', () => openProductDialog());
+  document.getElementById('btn-new-recipe').addEventListener('click', () => openRecipeDialog());
 }
 
 function wireManageUsers() {
@@ -334,6 +336,7 @@ function wireListActions() {
   document.getElementById('list-stock').addEventListener('click', handleStockAction);
   document.getElementById('list-transactions').addEventListener('click', handleTransactionAction);
   document.getElementById('list-contracts').addEventListener('click', handleContractAction);
+  document.getElementById('list-recettes').addEventListener('click', handleRecipeAction);
 }
 
 function handleClientAction(e) {
@@ -411,6 +414,27 @@ function handleStockAction(e) {
   if (btn.dataset.action === 'delete-product') {
     confirmDelete(`Supprimer le produit « ${product.name} » ?`, () => {
       ke.request('delete_product', { id }).catch((err) => toast(err.message, 'error'));
+    });
+  }
+}
+
+function handleRecipeAction(e) {
+  const btn = e.target.closest('button[data-action]');
+  if (!btn) return;
+  const id = btn.dataset.id;
+  const recipe = findById(state.snapshot.recipes, id);
+  if (!recipe) return;
+  const outputProduct = findById(state.snapshot.products, recipe.output.productId);
+  const label = outputProduct ? outputProduct.name : 'ce produit';
+  if (btn.dataset.action === 'edit-recipe') openRecipeDialog(recipe);
+  if (btn.dataset.action === 'craft-recipe') {
+    ke.request('craft_recipe', { id })
+      .then(() => toast(`Recette « ${label} » fabriquée.`, 'info'))
+      .catch((err) => toast(err.message, 'error'));
+  }
+  if (btn.dataset.action === 'delete-recipe') {
+    confirmDelete(`Supprimer la recette « ${label} » ?`, () => {
+      ke.request('delete_recipe', { id }).catch((err) => toast(err.message, 'error'));
     });
   }
 }

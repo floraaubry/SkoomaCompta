@@ -1061,6 +1061,10 @@ dialog[open]::backdrop {
   margin-top: 16px;
 }
 
+.recipe-output-row {
+  margin-bottom: 16px;
+}
+
 .pay-line {
   margin: 6px 0;
 }

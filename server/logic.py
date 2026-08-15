@@ -5,8 +5,8 @@ either returns the created/updated record (persisting the change) or raises
 LogicError with a message safe to show directly to the user (in French — the
 frontend is French-only and just displays these verbatim).
 
-Money (balance, salary, prices, transaction amounts) is always an integer
-number of septims — no fractional currency.
+Money (balance, salary, prices, transaction amounts) is always a number of
+septims rounded to at most 2 decimal places (fractional septims).
 
 Every mutating function also takes the acting user and appends a line to the
 audit log (db.logs) describing what happened — this is the data behind the
@@ -35,9 +35,13 @@ def public_user(user):
     return {k: v for k, v in user.items() if k != "password"}
 
 
+def round2(value):
+    return round(float(value), 2)
+
+
 def to_money(value, field_error):
     try:
-        return int(round(float(value)))
+        return round2(value)
     except (TypeError, ValueError):
         raise LogicError(field_error)
 
@@ -98,6 +102,13 @@ def find_contract(db, contract_id):
         if c["id"] == contract_id:
             return c
     raise LogicError("Contrat introuvable.")
+
+
+def find_recipe(db, recipe_id):
+    for r in db.recipes:
+        if r["id"] == recipe_id:
+            return r
+    raise LogicError("Recette introuvable.")
 
 
 # --------------------------------------------------------- setup / login --
@@ -322,9 +333,9 @@ def pay_employee(db, payload, acting_user):
     if percent < 0:
         raise LogicError("Le pourcentage de commission ne peut pas être négatif.")
 
-    salary = int(employee.get("salary", 0))
-    commission = int(round(employee.get("amountSold", 0) * percent / 100))
-    total = salary + commission
+    salary = round2(employee.get("salary", 0))
+    commission = round2(employee.get("amountSold", 0) * percent / 100)
+    total = round2(salary + commission)
 
     transaction = {
         "id": new_id(),
@@ -340,7 +351,7 @@ def pay_employee(db, payload, acting_user):
         ],
     }
     db.transactions.append(transaction)
-    db.shop["balance"] = int(db.shop["balance"]) - total
+    db.shop["balance"] = round2(db.shop["balance"] - total)
     employee["amountSold"] = 0
     log_action(
         db, acting_user, "pay_employee",
@@ -420,6 +431,12 @@ def delete_product(db, payload, acting_user):
     )
     if used:
         raise LogicError("Impossible de supprimer un produit référencé par des transactions existantes.")
+    used_in_recipe = any(
+        product["id"] == r["output"]["productId"] or any(i["productId"] == product["id"] for i in r["ingredients"])
+        for r in db.recipes
+    )
+    if used_in_recipe:
+        raise LogicError("Impossible de supprimer un produit référencé par une recette existante.")
     db.products.remove(product)
     log_action(db, acting_user, "delete_product", f"Suppression du produit « {product['name']} ».")
     db.save_one("products")
@@ -469,10 +486,10 @@ def create_transaction(db, payload, acting_user):
             "productName": product["name"],
             "quantity": quantity,
             "unitPrice": product["sellPrice"],
-            "lineTotal": product["sellPrice"] * quantity,
+            "lineTotal": round2(product["sellPrice"] * quantity),
         })
 
-    total = sum(line["lineTotal"] for line in resolved)
+    total = round2(sum(line["lineTotal"] for line in resolved))
 
     for line in resolved:
         product = find_product(db, line["productId"])
@@ -482,14 +499,14 @@ def create_transaction(db, payload, acting_user):
             product["quantity"] += line["quantity"]
 
     if direction == "in":
-        db.shop["balance"] = int(db.shop["balance"]) + total
-        client["totalEarned"] = int(client.get("totalEarned", 0)) + total
+        db.shop["balance"] = round2(db.shop["balance"] + total)
+        client["totalEarned"] = round2(client.get("totalEarned", 0) + total)
         employee_id = acting_user.get("employeeId")
         if employee_id:
             employee = find_employee(db, employee_id)
-            employee["amountSold"] = int(employee.get("amountSold", 0)) + total
+            employee["amountSold"] = round2(employee.get("amountSold", 0) + total)
     else:
-        db.shop["balance"] = int(db.shop["balance"]) - total
+        db.shop["balance"] = round2(db.shop["balance"] - total)
 
     transaction = {
         "id": new_id(),
@@ -537,15 +554,15 @@ def delete_transaction(db, payload, acting_user):
 
     client_id = transaction.get("clientId")
     if direction == "in":
-        db.shop["balance"] = int(db.shop["balance"]) - amount
+        db.shop["balance"] = round2(db.shop["balance"] - amount)
         if client_id:
             client = find_client(db, client_id)
-            client["totalEarned"] = int(client.get("totalEarned", 0)) - amount
+            client["totalEarned"] = round2(client.get("totalEarned", 0) - amount)
         employee = find_employee(db, transaction.get("employeeId"))
         if employee:
-            employee["amountSold"] = max(0, int(employee.get("amountSold", 0)) - amount)
+            employee["amountSold"] = max(0, round2(employee.get("amountSold", 0) - amount))
     else:
-        db.shop["balance"] = int(db.shop["balance"]) + amount
+        db.shop["balance"] = round2(db.shop["balance"] + amount)
 
     db.transactions.remove(transaction)
     direction_label = "entrée" if direction == "in" else "sortie"
@@ -674,12 +691,12 @@ def checkout_contract(db, payload, acting_user):
             "productName": product["name"],
             "quantity": item["quantity"],
             "unitPrice": product["sellPrice"],
-            "lineTotal": product["sellPrice"] * item["quantity"],
+            "lineTotal": round2(product["sellPrice"] * item["quantity"]),
         })
-    subtotal = sum(line["lineTotal"] for line in resolved)
+    subtotal = round2(sum(line["lineTotal"] for line in resolved))
     discount_percent = contract.get("discountPercent", 0)
-    discount_amount = int(round(subtotal * discount_percent / 100))
-    total = subtotal - discount_amount
+    discount_amount = round2(subtotal * discount_percent / 100)
+    total = round2(subtotal - discount_amount)
 
     content = list(resolved)
     if discount_amount:
@@ -698,16 +715,16 @@ def checkout_contract(db, payload, acting_user):
                 )
         for line in resolved:
             find_product(db, line["productId"])["quantity"] -= line["quantity"]
-        db.shop["balance"] = int(db.shop["balance"]) + total
-        client["totalEarned"] = int(client.get("totalEarned", 0)) + total
+        db.shop["balance"] = round2(db.shop["balance"] + total)
+        client["totalEarned"] = round2(client.get("totalEarned", 0) + total)
         employee_id = acting_user.get("employeeId")
         if employee_id:
             employee = find_employee(db, employee_id)
-            employee["amountSold"] = int(employee.get("amountSold", 0)) + total
+            employee["amountSold"] = round2(employee.get("amountSold", 0) + total)
     else:
         for line in resolved:
             find_product(db, line["productId"])["quantity"] += line["quantity"]
-        db.shop["balance"] = int(db.shop["balance"]) - total
+        db.shop["balance"] = round2(db.shop["balance"] - total)
 
     transaction = {
         "id": new_id(),
@@ -727,6 +744,94 @@ def checkout_contract(db, payload, acting_user):
     )
     db.save_all()
     return transaction
+
+
+# ------------------------------------------------------------------ recipes --
+#
+# A recipe is a crafting definition: a list of ingredients (products + amount
+# consumed) and a single output (product + amount produced). Crafting it
+# (craft_recipe) draws the ingredients from stock and adds the output to
+# stock in one atomic step — it does not touch balance or transactions,
+# since crafting isn't a sale.
+
+def _resolve_recipe_items(db, items, field_error):
+    if not items:
+        raise LogicError(field_error)
+    resolved = []
+    for item in items:
+        product = find_product(db, item.get("productId"))
+        try:
+            quantity = int(item.get("quantity", 0))
+        except (TypeError, ValueError):
+            raise LogicError(f"Quantité invalide pour {product['name']}.")
+        if quantity <= 0:
+            raise LogicError(f"La quantité pour {product['name']} doit être supérieure à zéro.")
+        resolved.append({"productId": product["id"], "quantity": quantity})
+    return resolved
+
+
+def _resolve_recipe_output(db, output):
+    if not output or not output.get("productId"):
+        raise LogicError("Un produit fabriqué est requis.")
+    return _resolve_recipe_items(db, [output], "Un produit fabriqué est requis.")[0]
+
+
+def create_recipe(db, payload, acting_user):
+    ingredients = _resolve_recipe_items(db, payload.get("ingredients") or [], "Au moins un ingrédient est requis.")
+    output = _resolve_recipe_output(db, payload.get("output"))
+
+    recipe = {"id": new_id(), "ingredients": ingredients, "output": output}
+    db.recipes.append(recipe)
+    output_product = find_product(db, output["productId"])
+    log_action(db, acting_user, "create_recipe", f"Création de la recette « {output_product['name']} ».")
+    db.save_one("recipes")
+    return recipe
+
+
+def update_recipe(db, payload, acting_user):
+    recipe = find_recipe(db, payload.get("id"))
+    if payload.get("ingredients") is not None:
+        recipe["ingredients"] = _resolve_recipe_items(db, payload["ingredients"], "Au moins un ingrédient est requis.")
+    if payload.get("output") is not None:
+        recipe["output"] = _resolve_recipe_output(db, payload["output"])
+    output_product = find_product(db, recipe["output"]["productId"])
+    log_action(db, acting_user, "update_recipe", f"Modification de la recette « {output_product['name']} ».")
+    db.save_one("recipes")
+    return recipe
+
+
+def delete_recipe(db, payload, acting_user):
+    recipe = find_recipe(db, payload.get("id"))
+    output_product = find_product(db, recipe["output"]["productId"])
+    db.recipes.remove(recipe)
+    log_action(db, acting_user, "delete_recipe", f"Suppression de la recette « {output_product['name']} ».")
+    db.save_one("recipes")
+    return {"id": recipe["id"]}
+
+
+def craft_recipe(db, payload, acting_user):
+    recipe = find_recipe(db, payload.get("id"))
+
+    for ingredient in recipe["ingredients"]:
+        product = find_product(db, ingredient["productId"])
+        if ingredient["quantity"] > product["quantity"]:
+            raise LogicError(
+                f"Stock insuffisant pour {product['name']} : {product['quantity']} en stock, "
+                f"{ingredient['quantity']} requis pour cette recette."
+            )
+
+    for ingredient in recipe["ingredients"]:
+        find_product(db, ingredient["productId"])["quantity"] -= ingredient["quantity"]
+
+    output_product = find_product(db, recipe["output"]["productId"])
+    output_product["quantity"] += recipe["output"]["quantity"]
+
+    log_action(
+        db, acting_user, "craft_recipe",
+        f"Fabrication de la recette « {output_product['name']} » : +{recipe['output']['quantity']} en stock."
+    )
+    db.save_one("products")
+    return {"recipeId": recipe["id"], "products": db.products}
 
 
 # --------------------------------------------------------------------- chat --

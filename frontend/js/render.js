@@ -7,6 +7,7 @@ function renderAll() {
   renderTransactions();
   renderContracts();
   renderStock();
+  renderRecettes();
 }
 
 function renderHeader() {
@@ -49,6 +50,10 @@ const LOG_ACTION_LABELS = {
   update_contract: 'Modification de contrat',
   delete_contract: 'Suppression de contrat',
   checkout_contract: 'Encaissement de contrat',
+  create_recipe: 'Création de recette',
+  update_recipe: 'Modification de recette',
+  delete_recipe: 'Suppression de recette',
+  craft_recipe: 'Fabrication de recette',
   create_backup: 'Sauvegarde créée',
   restore_backup: 'Restauration d’une sauvegarde',
   delete_backup: 'Suppression d’une sauvegarde',
@@ -352,6 +357,45 @@ function renderStock() {
     row.appendChild(main);
     row.appendChild(spinboxSlot);
     row.appendChild(actions);
+    container.appendChild(row);
+  });
+}
+
+function recipeItemsSummary(items) {
+  return items
+    .map((it) => {
+      const product = findById(state.snapshot.products, it.productId);
+      return `${product ? product.name : '?'} x${it.quantity}`;
+    })
+    .join(', ');
+}
+
+function renderRecettes() {
+  const q = (document.getElementById('recettes-search').value || '').trim().toLowerCase();
+  const container = document.getElementById('list-recettes');
+  const items = state.snapshot.recipes.filter((r) => {
+    const outputProduct = findById(state.snapshot.products, r.output.productId);
+    return !!outputProduct && outputProduct.name.toLowerCase().includes(q);
+  });
+  container.innerHTML = '';
+  if (items.length === 0) {
+    container.innerHTML = '<p class="empty-hint">Aucune recette pour le moment.</p>';
+    return;
+  }
+  items.forEach((r) => {
+    const outputProduct = findById(state.snapshot.products, r.output.productId);
+    const row = document.createElement('div');
+    row.className = 'card';
+    row.innerHTML = `
+      <div class="card-main">
+        <div class="card-title">${escapeHtml(outputProduct ? outputProduct.name : '?')} <span class="card-sub">x${r.output.quantity}</span></div>
+        <div class="card-sub">Ingrédients : ${escapeHtml(recipeItemsSummary(r.ingredients))}</div>
+      </div>
+      <div class="card-actions">
+        <button class="btn btn-small btn-accent" data-action="craft-recipe" data-id="${r.id}">Fabriquer</button>
+        <button class="btn btn-small" data-action="edit-recipe" data-id="${r.id}">Modifier</button>
+        <button class="btn btn-small btn-danger" data-action="delete-recipe" data-id="${r.id}">Supprimer</button>
+      </div>`;
     container.appendChild(row);
   });
 }

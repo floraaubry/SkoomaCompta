@@ -44,6 +44,7 @@ MUTATING_ACTIONS = {
     "create_product", "update_product", "delete_product",
     "create_transaction", "delete_transaction",
     "create_contract", "update_contract", "delete_contract", "checkout_contract",
+    "create_recipe", "update_recipe", "delete_recipe", "craft_recipe",
     "restore_backup",
 }
 
@@ -141,6 +142,15 @@ class Server:
             return logic.delete_contract(self.db, payload, user)
         if action == "checkout_contract":
             return logic.checkout_contract(self.db, payload, user)
+
+        if action == "create_recipe":
+            return logic.create_recipe(self.db, payload, user)
+        if action == "update_recipe":
+            return logic.update_recipe(self.db, payload, user)
+        if action == "delete_recipe":
+            return logic.delete_recipe(self.db, payload, user)
+        if action == "craft_recipe":
+            return logic.craft_recipe(self.db, payload, user)
 
         if action == "list_chat_messages":
             return logic.list_chat_messages(self.db)

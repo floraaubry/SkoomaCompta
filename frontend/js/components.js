@@ -103,8 +103,14 @@ function createSpinbox({ min = 0, max = Infinity, step = 1, value = 0, onChange 
   root.appendChild(input);
   root.appendChild(btnPlus);
 
+  const stepDecimals = (String(step).split('.')[1] || '').length;
+
   function clamp(v) {
     if (isNaN(v)) v = min;
+    if (stepDecimals) {
+      const factor = 10 ** stepDecimals;
+      v = Math.round(v * factor) / factor;
+    }
     v = Math.max(min, v);
     if (isFinite(max)) v = Math.min(max, v);
     return v;

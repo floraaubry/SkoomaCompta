@@ -9,6 +9,7 @@ const state = {
     products: [],
     transactions: [],
     contracts: [],
+    recipes: [],
   },
   user: null, // currently logged in user (public fields only)
 };
@@ -22,8 +23,8 @@ function findById(list, id) {
 }
 
 function fmtGold(n) {
-  const num = Math.round(Number(n) || 0);
-  return num.toLocaleString('fr-FR', { maximumFractionDigits: 0 });
+  const num = Math.round((Number(n) || 0) * 100) / 100;
+  return num.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 function escapeHtml(str) {

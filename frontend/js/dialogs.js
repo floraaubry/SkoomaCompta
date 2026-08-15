@@ -131,7 +131,7 @@ function openProductDialog(product) {
 
   const priceSlot = document.getElementById('product-sell-price-slot');
   priceSlot.innerHTML = '';
-  productSellPriceSpinbox = createSpinbox({ min: 0, step: 1, value: product ? product.sellPrice : 0 });
+  productSellPriceSpinbox = createSpinbox({ min: 0, step: 0.01, value: product ? product.sellPrice : 0 });
   priceSlot.appendChild(productSellPriceSpinbox.root);
 
   document.getElementById('product-error').textContent = '';
@@ -155,6 +155,114 @@ document.getElementById('form-product').addEventListener('submit', async (e) => 
       await ke.request('create_product', payload);
     }
     document.getElementById('dialog-product').close();
+  } catch (err) {
+    errorEl.textContent = err.message;
+  }
+});
+
+/* --------------------------------------------------------- recipe dialog */
+
+let recipeIngredientRows = [];
+let recipeOutputCombobox = null;
+let recipeOutputQuantitySpinbox = null;
+
+function openRecipeDialog(recipe) {
+  document.getElementById('recipe-dialog-title').textContent = recipe ? 'Modifier la recette' : 'Nouvelle recette';
+  document.getElementById('recipe-id').value = recipe ? recipe.id : '';
+  document.getElementById('recipe-error').textContent = '';
+  document.getElementById('recipe-ingredients').innerHTML = '';
+  recipeIngredientRows = [];
+
+  const outputSlot = document.getElementById('recipe-output-slot');
+  outputSlot.innerHTML = '';
+  recipeOutputCombobox = createCombobox({
+    items: state.snapshot.products,
+    getId: (p) => p.id,
+    getLabel: (p) => `${p.name} (${p.quantity} en stock)`,
+    placeholder: 'Rechercher un produit...',
+    initialId: recipe ? recipe.output.productId : null,
+  });
+  outputSlot.appendChild(recipeOutputCombobox.root);
+
+  const outputQtySlot = document.getElementById('recipe-output-quantity-slot');
+  outputQtySlot.innerHTML = '';
+  recipeOutputQuantitySpinbox = createSpinbox({ min: 1, step: 1, value: recipe ? recipe.output.quantity : 1 });
+  outputQtySlot.appendChild(recipeOutputQuantitySpinbox.root);
+
+  if (recipe && recipe.ingredients.length) {
+    recipe.ingredients.forEach((it) => addRecipeIngredientRow(it.productId, it.quantity));
+  } else {
+    addRecipeIngredientRow();
+  }
+  document.getElementById('dialog-recipe').showModal();
+}
+
+function addRecipeIngredientRow(initialProductId, initialQuantity) {
+  const row = document.createElement('div');
+  row.className = 'transaction-item-row';
+
+  const comboSlot = document.createElement('div');
+  comboSlot.className = 'transaction-item-product';
+
+  const spinbox = createSpinbox({ min: 1, value: initialQuantity || 1, step: 1 });
+
+  const combobox = createCombobox({
+    items: state.snapshot.products,
+    getId: (p) => p.id,
+    getLabel: (p) => `${p.name} (${p.quantity} en stock)`,
+    placeholder: 'Rechercher un produit...',
+    initialId: initialProductId || null,
+  });
+  comboSlot.appendChild(combobox.root);
+
+  const removeBtn = document.createElement('button');
+  removeBtn.type = 'button';
+  removeBtn.className = 'btn btn-small btn-danger';
+  removeBtn.textContent = 'Retirer';
+  removeBtn.addEventListener('click', () => {
+    row.remove();
+    recipeIngredientRows = recipeIngredientRows.filter((r) => r.rowEl !== row);
+  });
+
+  row.appendChild(comboSlot);
+  row.appendChild(spinbox.root);
+  row.appendChild(removeBtn);
+  document.getElementById('recipe-ingredients').appendChild(row);
+
+  recipeIngredientRows.push({ rowEl: row, combobox, spinbox });
+}
+
+document.getElementById('btn-add-recipe-ingredient').addEventListener('click', () => addRecipeIngredientRow());
+
+document.getElementById('form-recipe').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const errorEl = document.getElementById('recipe-error');
+  errorEl.textContent = '';
+  const id = document.getElementById('recipe-id').value;
+  const outputProductId = recipeOutputCombobox.getValue();
+  if (!outputProductId) {
+    errorEl.textContent = 'Sélectionnez le produit fabriqué.';
+    return;
+  }
+  const ingredients = recipeIngredientRows
+    .map((r) => ({ productId: r.combobox.getValue(), quantity: r.spinbox.getValue() }))
+    .filter((i) => i.productId);
+  if (ingredients.length === 0) {
+    errorEl.textContent = 'Ajoutez au moins un ingrédient.';
+    return;
+  }
+  const payload = {
+    ingredients,
+    output: { productId: outputProductId, quantity: recipeOutputQuantitySpinbox.getValue() },
+  };
+  try {
+    if (id) {
+      payload.id = id;
+      await ke.request('update_recipe', payload);
+    } else {
+      await ke.request('create_recipe', payload);
+    }
+    document.getElementById('dialog-recipe').close();
   } catch (err) {
     errorEl.textContent = err.message;
   }
