@@ -456,6 +456,12 @@ def create_transaction(db, payload, acting_user):
     direction = payload.get("direction")
     client_id = payload.get("clientId")
     items = payload.get("items") or []
+    try:
+        adjustment_percent = float(payload.get("adjustmentPercent", 0) or 0)
+    except (TypeError, ValueError):
+        raise LogicError("Le pourcentage d'ajustement doit être un nombre.")
+    if adjustment_percent < -100:
+        raise LogicError("Le pourcentage d'ajustement ne peut pas être inférieur à -100%.")
 
     if direction not in ("in", "out"):
         raise LogicError("Le sens doit être « entrée » ou « sortie ».")
@@ -489,7 +495,9 @@ def create_transaction(db, payload, acting_user):
             "lineTotal": round2(product["sellPrice"] * quantity),
         })
 
-    total = round2(sum(line["lineTotal"] for line in resolved))
+    subtotal = round2(sum(line["lineTotal"] for line in resolved))
+    adjustment_amount = round2(subtotal * adjustment_percent / 100)
+    total = round2(subtotal + adjustment_amount)
 
     for line in resolved:
         product = find_product(db, line["productId"])
@@ -508,6 +516,10 @@ def create_transaction(db, payload, acting_user):
     else:
         db.shop["balance"] = round2(db.shop["balance"] - total)
 
+    content = list(resolved)
+    if adjustment_amount:
+        content.append({"label": f"Ajustement ({adjustment_percent:+g}%)", "amount": adjustment_amount})
+
     transaction = {
         "id": new_id(),
         "name": client["name"],
@@ -516,14 +528,14 @@ def create_transaction(db, payload, acting_user):
         "date": now_iso(),
         "employeeId": acting_user.get("employeeId"),
         "clientId": client["id"],
-        "content": resolved,
+        "content": content,
     }
     db.transactions.append(transaction)
     direction_label = "entrée" if direction == "in" else "sortie"
     log_action(
         db, acting_user, "create_transaction",
         f"Transaction ({direction_label}) avec « {client['name']} » : {total} septims "
-        f"({_content_summary(resolved)})."
+        f"({_content_summary(content)})."
     )
     db.save_all()
     return transaction

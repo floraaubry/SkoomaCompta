@@ -272,6 +272,7 @@ document.getElementById('form-recipe').addEventListener('submit', async (e) => {
 
 let transactionClientCombobox = null;
 let transactionItemRows = [];
+let transactionAdjustmentSpinbox = null;
 
 function openTransactionDialog() {
   document.getElementById('form-transaction').reset();
@@ -288,6 +289,11 @@ function openTransactionDialog() {
     placeholder: 'Rechercher un client...',
   });
   slot.appendChild(transactionClientCombobox.root);
+
+  const adjustmentSlot = document.getElementById('transaction-adjustment-slot');
+  adjustmentSlot.innerHTML = '';
+  transactionAdjustmentSpinbox = createSpinbox({ min: -100, max: Infinity, step: 1, value: 0, onChange: updateTransactionTotal });
+  adjustmentSlot.appendChild(transactionAdjustmentSpinbox.root);
 
   addTransactionItemRow();
   updateTransactionTotal();
@@ -352,12 +358,14 @@ document.querySelectorAll('input[name="direction"]').forEach((radio) => {
 });
 
 function updateTransactionTotal() {
-  let total = 0;
+  let subtotal = 0;
   transactionItemRows.forEach((r) => {
     const id = r.combobox.getValue();
     const product = id ? findById(state.snapshot.products, id) : null;
-    if (product) total += product.sellPrice * r.spinbox.getValue();
+    if (product) subtotal += product.sellPrice * r.spinbox.getValue();
   });
+  const adjustmentPercent = transactionAdjustmentSpinbox ? transactionAdjustmentSpinbox.getValue() : 0;
+  const total = subtotal + (subtotal * adjustmentPercent) / 100;
   document.getElementById('transaction-total').textContent = fmtGold(total);
 }
 
@@ -382,6 +390,7 @@ document.getElementById('form-transaction').addEventListener('submit', async (e)
       clientId,
       direction: transactionDirection(),
       items,
+      adjustmentPercent: transactionAdjustmentSpinbox.getValue(),
     });
     document.getElementById('dialog-transaction').close();
   } catch (err) {
