@@ -21,7 +21,18 @@ function createCombobox({ items, getId, getLabel, placeholder, onSelect, initial
 
   function render(filter) {
     const q = (filter || '').trim().toLowerCase();
-    const matches = currentItems.filter((it) => getLabel(it).toLowerCase().includes(q)).slice(0, 30);
+    const matches = currentItems
+      .map((it) => ({ it, label: getLabel(it).toLowerCase() }))
+      .filter(({ label }) => label.includes(q))
+      // Prefix matches first so an item is always reachable by typing its
+      // actual name, even if the query also matches boilerplate text (e.g.
+      // "en stock", "septims") embedded in every other item's label.
+      .sort((a, b) => {
+        const aStarts = a.label.startsWith(q) ? 0 : 1;
+        const bStarts = b.label.startsWith(q) ? 0 : 1;
+        return aStarts - bStarts || a.label.localeCompare(b.label);
+      })
+      .map(({ it }) => it);
     dropdown.innerHTML = '';
     if (matches.length === 0) {
       const empty = document.createElement('div');
