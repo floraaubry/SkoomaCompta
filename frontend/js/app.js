@@ -328,9 +328,11 @@ function wireNewButtons() {
 function wireManageUsers() {
   document.getElementById('btn-manage-users').addEventListener('click', () => openUsersDialog());
   document.getElementById('btn-backup').addEventListener('click', () => openBackupDialog());
+  document.getElementById('btn-payroll-settings').addEventListener('click', () => openPayrollSettingsDialog());
 }
 
 function wireListActions() {
+  document.getElementById('list-home').addEventListener('click', handleEmployeeAction);
   document.getElementById('list-clients').addEventListener('click', handleClientAction);
   document.getElementById('list-employees').addEventListener('click', handleEmployeeAction);
   document.getElementById('list-stock').addEventListener('click', handleStockAction);

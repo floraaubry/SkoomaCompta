@@ -87,13 +87,16 @@ def generate_testdb():
         "brelyna": client("Brelyna Maryon", "Apprentie mage, achète en gros pour le Collège."),
     }
 
-    def employee(name, salary, note=""):
-        return {"id": _new_id(), "name": name, "salary": salary, "amountSold": 0, "note": note}
+    def employee(name, note=""):
+        return {
+            "id": _new_id(), "name": name, "note": note,
+            "balance": 0, "balanceSince": "2026-08-01 00:00", "payHistory": [],
+        }
 
     employees = {
-        "lionor": employee("Lionor Mistyshore", 300, "Propriétaire de la boutique."),
-        "kharjo": employee("Kharjo", 150, "Ancien caravanier, connaît bien les clients."),
-        "ahkari": employee("Ahkari", 140),
+        "lionor": employee("Lionor Mistyshore", "Propriétaire de la boutique."),
+        "kharjo": employee("Kharjo", "Ancien caravanier, connaît bien les clients."),
+        "ahkari": employee("Ahkari"),
     }
 
     users = [
@@ -124,6 +127,24 @@ def generate_testdb():
         ("out", "sven", "kharjo", "2026-08-09 15:40", [("racine", 4), ("aile", 6)]),
     ]
 
+    # Same 18/50/25 defaults as db.py's DEFAULTS["shop"] — kept in sync by hand
+    # since this script deliberately bypasses server/logic.py.
+    TAX_PERCENT, VENDOR_PERCENT, POT_COMMUN_PERCENT = 18, 50, 25
+
+    def split_evenly(total, emp_list):
+        if not emp_list or total <= 0:
+            return []
+        cents_total = round(total * 100)
+        n = len(emp_list)
+        base = cents_total // n
+        leftover = cents_total - base * n
+        shares = []
+        for i, e in enumerate(emp_list):
+            cents = base + (1 if i < leftover else 0)
+            if cents:
+                shares.append({"employeeId": e["id"], "amount": round(cents / 100, 2)})
+        return shares
+
     balance = 10000
     transactions = []
     for direction, client_key, employee_key, date, items in plan:
@@ -134,20 +155,45 @@ def generate_testdb():
         for key, qty in items:
             products[key]["quantity"] += -qty if direction == "in" else qty
 
+        payroll = None
         if direction == "in":
-            balance += total
             c["totalEarned"] += total
-            employees[employee_key]["amountSold"] += total
+            tax_amount = round(total * TAX_PERCENT / 100, 2)
+            after_tax = round(total - tax_amount, 2)
+            vendor_amount = round(after_tax * VENDOR_PERCENT / 100, 2)
+            remainder = round(after_tax - vendor_amount, 2)
+            pot_commun_total = round(remainder * POT_COMMUN_PERCENT / 100, 2)
+            entreprise_amount = round(remainder - pot_commun_total, 2)
+
+            vendor_employee = employees[employee_key]
+            vendor_employee["balance"] = round(vendor_employee["balance"] + vendor_amount, 2)
+
+            pot_commun_shares = split_evenly(pot_commun_total, list(employees.values()))
+            for share in pot_commun_shares:
+                emp = next(e for e in employees.values() if e["id"] == share["employeeId"])
+                emp["balance"] = round(emp["balance"] + share["amount"], 2)
+
+            balance += after_tax
+            payroll = {
+                "taxAmount": tax_amount, "afterTaxAmount": after_tax,
+                "vendorEmployeeId": vendor_employee["id"], "vendorAmount": vendor_amount,
+                "potCommunTotal": pot_commun_total, "potCommunShares": pot_commun_shares,
+                "entrepriseAmount": entreprise_amount,
+            }
         else:
             balance -= total
 
         transactions.append({
             "id": _new_id(), "name": c["name"], "direction": direction, "amount": total,
             "date": date, "employeeId": employees[employee_key]["id"], "clientId": c["id"],
-            "content": content,
+            "content": content, "payroll": payroll,
         })
 
-    shop = {"shopName": "La Troisième Lune", "balance": balance, "setupComplete": True}
+    shop = {
+        "shopName": "La Troisième Lune", "balance": balance, "setupComplete": True,
+        "taxPercent": TAX_PERCENT, "vendorPercent": VENDOR_PERCENT, "potCommunPercent": POT_COMMUN_PERCENT,
+        "applySplitToContracts": False,
+    }
 
     logs = [{
         "id": _new_id(),

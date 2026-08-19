@@ -86,7 +86,6 @@ function openEmployeeDialog(employee) {
   document.getElementById('employee-dialog-title').textContent = employee ? 'Modifier l’employé' : 'Nouvel employé';
   document.getElementById('employee-id').value = employee ? employee.id : '';
   document.getElementById('employee-name').value = employee ? employee.name : '';
-  document.getElementById('employee-salary').value = employee ? employee.salary : 0;
   document.getElementById('employee-note').value = employee ? employee.note || '' : '';
   document.getElementById('employee-error').textContent = '';
   document.getElementById('dialog-employee').showModal();
@@ -97,7 +96,6 @@ document.getElementById('form-employee').addEventListener('submit', async (e) =>
   const id = document.getElementById('employee-id').value;
   const payload = {
     name: document.getElementById('employee-name').value,
-    salary: document.getElementById('employee-salary').value,
     note: document.getElementById('employee-note').value,
   };
   const errorEl = document.getElementById('employee-error');
@@ -421,6 +419,30 @@ function openTransactionDetailDialog(transaction) {
     itemsEl.appendChild(line);
   });
 
+  const payrollEl = document.getElementById('transaction-detail-payroll');
+  payrollEl.innerHTML = '';
+  const payroll = transaction.payroll;
+  if (payroll) {
+    const rows = [['Impôts', payroll.taxAmount]];
+    if (payroll.vendorEmployeeId) {
+      const vendor = findById(state.snapshot.employees, payroll.vendorEmployeeId);
+      rows.push([`Part vendeur (${vendor ? vendor.name : '—'})`, payroll.vendorAmount]);
+    } else {
+      rows.push(['Part vendeur (reversée au pot commun)', 0]);
+    }
+    rows.push([`Pot commun (${payroll.potCommunShares.length} employé(s))`, payroll.potCommunTotal]);
+    rows.push(['Entreprise', payroll.entrepriseAmount]);
+    rows.forEach(([label, amount]) => {
+      const line = document.createElement('div');
+      line.className = 'transaction-detail-item';
+      line.innerHTML = `<span>${escapeHtml(label)}</span><span>${fmtGold(amount)} septims</span>`;
+      payrollEl.appendChild(line);
+    });
+    payrollEl.classList.remove('hidden');
+  } else {
+    payrollEl.classList.add('hidden');
+  }
+
   document.getElementById('dialog-transaction-detail').showModal();
 }
 
@@ -621,39 +643,22 @@ document.getElementById('btn-confirm-contract-checkout').addEventListener('click
 
 /* ------------------------------------------------------------- pay dialog */
 
-let payCommissionSpinbox = null;
-let payingEmployee = null;
-
 function openPayDialog(employee) {
-  payingEmployee = employee;
   document.getElementById('pay-employee-id').value = employee.id;
   document.getElementById('pay-employee-name').textContent = employee.name;
-  document.getElementById('pay-salary').textContent = fmtGold(employee.salary);
-  document.getElementById('pay-amount-sold').textContent = fmtGold(employee.amountSold);
+  document.getElementById('pay-since').textContent = employee.balanceSince || '—';
+  document.getElementById('pay-total').textContent = fmtGold(employee.balance);
   document.getElementById('pay-error').textContent = '';
-
-  const slot = document.getElementById('pay-commission-slot');
-  slot.innerHTML = '';
-  payCommissionSpinbox = createSpinbox({ min: 0, max: 100, step: 1, value: 0, onChange: updatePayTotal });
-  slot.appendChild(payCommissionSpinbox.root);
-  updatePayTotal();
   document.getElementById('dialog-pay').showModal();
-}
-
-function updatePayTotal() {
-  if (!payingEmployee) return;
-  const pct = payCommissionSpinbox.getValue();
-  const total = Number(payingEmployee.salary || 0) + (Number(payingEmployee.amountSold || 0) * pct) / 100;
-  document.getElementById('pay-total').textContent = fmtGold(total);
 }
 
 document.getElementById('form-pay').addEventListener('submit', async (e) => {
   e.preventDefault();
   const id = document.getElementById('pay-employee-id').value;
-  const percent = payCommissionSpinbox.getValue();
   try {
-    await ke.request('pay_employee', { id, commissionPercent: percent });
+    await ke.request('pay_employee', { id });
     document.getElementById('dialog-pay').close();
+    toast('Employé payé.', 'info');
   } catch (err) {
     document.getElementById('pay-error').textContent = err.message;
   }
@@ -885,6 +890,57 @@ document.getElementById('btn-create-backup').addEventListener('click', async () 
     await ke.request('create_backup');
     renderBackupList();
     toast('Sauvegarde créée.', 'info');
+  } catch (err) {
+    errorEl.textContent = err.message;
+  }
+});
+
+/* ------------------------------------------------------ payroll settings */
+
+let payrollTaxSpinbox = null;
+let payrollVendorSpinbox = null;
+
+function updatePayrollEntreprisePercent() {
+  const pot = Number(document.getElementById('payroll-pot-commun-slider').value);
+  document.getElementById('payroll-pot-commun-percent').textContent = String(pot);
+  document.getElementById('payroll-entreprise-percent').textContent = String(100 - pot);
+}
+
+function openPayrollSettingsDialog() {
+  document.getElementById('payroll-error').textContent = '';
+  const shop = state.snapshot.shop;
+
+  const taxSlot = document.getElementById('payroll-tax-slot');
+  taxSlot.innerHTML = '';
+  payrollTaxSpinbox = createSpinbox({ min: 0, max: 100, step: 1, value: shop.taxPercent ?? 18 });
+  taxSlot.appendChild(payrollTaxSpinbox.root);
+
+  const vendorSlot = document.getElementById('payroll-vendor-slot');
+  vendorSlot.innerHTML = '';
+  payrollVendorSpinbox = createSpinbox({ min: 0, max: 100, step: 1, value: shop.vendorPercent ?? 50 });
+  vendorSlot.appendChild(payrollVendorSpinbox.root);
+
+  document.getElementById('payroll-pot-commun-slider').value = shop.potCommunPercent ?? 25;
+  updatePayrollEntreprisePercent();
+
+  document.getElementById('payroll-apply-contracts').checked = !!shop.applySplitToContracts;
+  document.getElementById('dialog-payroll').showModal();
+}
+
+document.getElementById('payroll-pot-commun-slider').addEventListener('input', updatePayrollEntreprisePercent);
+
+document.getElementById('btn-save-payroll').addEventListener('click', async () => {
+  const errorEl = document.getElementById('payroll-error');
+  errorEl.textContent = '';
+  try {
+    await ke.request('update_payroll_settings', {
+      taxPercent: payrollTaxSpinbox.getValue(),
+      vendorPercent: payrollVendorSpinbox.getValue(),
+      potCommunPercent: Number(document.getElementById('payroll-pot-commun-slider').value),
+      applySplitToContracts: document.getElementById('payroll-apply-contracts').checked,
+    });
+    document.getElementById('dialog-payroll').close();
+    toast('Répartition mise à jour.', 'info');
   } catch (err) {
     errorEl.textContent = err.message;
   }

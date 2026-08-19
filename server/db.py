@@ -16,7 +16,17 @@ DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
 BACKUP_DIR = os.path.join(DATA_DIR, "backups")
 
 DEFAULTS = {
-    "shop": {"shopName": "", "balance": 0, "setupComplete": False},
+    "shop": {
+        "shopName": "", "balance": 0, "setupComplete": False,
+        # Sale split: taxPercent of the total is discarded, vendorPercent of
+        # what's left goes to the employee who recorded the sale, and
+        # potCommunPercent of what's left after that is split evenly across
+        # every employee that exists at the time of the sale (the rest stays
+        # in the shop balance as company profit). See logic.py's
+        # _compute_payroll_split for the actual math.
+        "taxPercent": 18, "vendorPercent": 50, "potCommunPercent": 25,
+        "applySplitToContracts": False,
+    },
     "users": [],
     "employees": [],
     "clients": [],
@@ -50,6 +60,29 @@ def default_collection(name):
     """Public form of _default(), for callers outside this module (e.g. restoring
     an older backup that predates a collection added to BACKUP_COLLECTIONS)."""
     return _default(name)
+
+
+def normalize_shop(shop):
+    """Backfills payroll-split fields onto shop dicts saved before they existed
+    (both on normal load and when restoring an older backup)."""
+    for key, default in DEFAULTS["shop"].items():
+        shop.setdefault(key, default)
+    return shop
+
+
+def normalize_employee(employee):
+    """Backfills balance-account fields onto employee dicts saved before they
+    existed, and drops the old salary/amountSold fields they replace."""
+    employee.pop("salary", None)
+    employee.pop("amountSold", None)
+    employee.setdefault("balance", 0)
+    employee.setdefault("balanceSince", None)
+    employee.setdefault("payHistory", [])
+    return employee
+
+
+def normalize_employees(employees):
+    return [normalize_employee(e) for e in employees]
 
 
 def _atomic_write_json(directory, path, prefix, data):
@@ -150,9 +183,9 @@ class Database:
     """In-memory mirror of all collections."""
 
     def __init__(self):
-        self.shop = load("shop")
+        self.shop = normalize_shop(load("shop"))
         self.users = load("users")
-        self.employees = load("employees")
+        self.employees = normalize_employees(load("employees"))
         self.clients = load("clients")
         self.products = load("products")
         self.transactions = load("transactions")
@@ -161,6 +194,10 @@ class Database:
         self.logs = load("logs")
         self.chatMessages = load("chatMessages")
         self.settings = load("settings")
+        # Persist the migration immediately so the on-disk files match the
+        # in-memory shape even before the next mutating action saves them.
+        save("shop", self.shop)
+        save("employees", self.employees)
 
     def save_all(self):
         for name in DEFAULTS:

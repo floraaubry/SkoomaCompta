@@ -68,6 +68,7 @@
     <div class="user-info">
       <span id="current-user-name" class="current-user-name"></span>
       <button id="btn-manage-users" class="btn btn-small hidden"><svg class="btn-icon" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="15" r="4"/><path d="M11 12l9-9"/><path d="M17 6l3 3"/><path d="M14 9l2 2"/></svg> Utilisateurs</button>
+      <button id="btn-payroll-settings" class="btn btn-small hidden"><svg class="btn-icon" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="7" cy="7" r="2.5"/><circle cx="17" cy="17" r="2.5"/><path d="M19 5L5 19"/></svg> Répartition</button>
       <button id="btn-backup" class="btn btn-small hidden"><svg class="btn-icon" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h12l4 4v12H4z"/><path d="M8 4v6h8V4"/><path d="M8 20v-6h8v6"/></svg> Sauvegardes</button>
       <button id="btn-logout" class="btn btn-small"><svg class="btn-icon" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></svg> Déconnexion</button>
     </div>
@@ -75,7 +76,8 @@
 
   <nav class="tabs">
     <button class="tab-btn hidden" data-tab="log" id="tab-btn-log"><svg class="btn-icon" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16v16H4z"/><path d="M8 9h8M8 13h8M8 17h5"/></svg> Journal</button>
-    <button class="tab-btn active" data-tab="clients"><svg class="btn-icon" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8"/></svg> Clients</button>
+    <button class="tab-btn active" data-tab="home"><svg class="btn-icon" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/></svg> Accueil</button>
+    <button class="tab-btn" data-tab="clients"><svg class="btn-icon" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8"/></svg> Clients</button>
     <button class="tab-btn" data-tab="employees"><svg class="btn-icon" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M3 12h18"/></svg> Employés</button>
     <button class="tab-btn" data-tab="transactions"><svg class="btn-icon" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3l4 4-4 4"/><path d="M3 7h18"/><path d="M7 21l-4-4 4-4"/><path d="M21 17H3"/></svg> Transactions</button>
     <button class="tab-btn" data-tab="contracts"><svg class="btn-icon" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2h-2"/><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M9 13l2 2 4-4"/></svg> Contrats</button>
@@ -93,7 +95,11 @@
       <div class="log-list" id="log-list"></div>
     </section>
 
-    <section id="tab-clients" class="tab-pane active">
+    <section id="tab-home" class="tab-pane active">
+      <div id="list-home"></div>
+    </section>
+
+    <section id="tab-clients" class="tab-pane">
       <div class="pane-header">
         <input type="search" class="search-input" id="clients-search" placeholder="Rechercher un client...">
         <button class="btn btn-primary" id="btn-new-client">+ Nouveau client</button>
@@ -194,7 +200,6 @@
     <h2 id="employee-dialog-title">Nouvel employé</h2>
     <input type="hidden" id="employee-id">
     <label>Nom <input type="text" id="employee-name" required></label>
-    <label>Salaire (septims) <input type="number" id="employee-salary" min="0" step="0.01" value="0"></label>
     <label>Note <textarea id="employee-note" rows="3"></textarea></label>
     <p class="error-text" id="employee-error"></p>
     <div class="dialog-actions">
@@ -282,6 +287,7 @@
   <p class="pay-line">Employé : <strong id="transaction-detail-employee"></strong></p>
   <p class="pay-line">Montant : <strong id="transaction-detail-amount"></strong></p>
   <div class="transaction-detail-items" id="transaction-detail-items"></div>
+  <div class="transaction-detail-items hidden" id="transaction-detail-payroll"></div>
   <div class="dialog-actions">
     <button type="button" class="btn" data-close>Fermer</button>
   </div>
@@ -335,10 +341,7 @@
   <form id="form-pay">
     <h2>Payer <span id="pay-employee-name"></span></h2>
     <input type="hidden" id="pay-employee-id">
-    <p class="pay-line">Salaire : <strong id="pay-salary">0</strong> septims</p>
-    <p class="pay-line">Montant vendu cette période : <strong id="pay-amount-sold">0</strong> septims</p>
-    <label>Commission (prime)</label>
-    <div class="combobox-slot" id="pay-commission-slot"></div>
+    <p class="pay-line">Solde à venir depuis le <strong id="pay-since">—</strong></p>
     <p class="pay-line pay-total">Total à payer : <strong id="pay-total">0</strong> septims</p>
     <p class="error-text" id="pay-error"></p>
     <div class="dialog-actions">
@@ -398,6 +401,39 @@
 
   <div class="dialog-actions">
     <button type="button" class="btn" data-close>Fermer</button>
+  </div>
+</dialog>
+
+<!-- PAYROLL SETTINGS DIALOG (admin only) -->
+<dialog id="dialog-payroll" class="ke-dialog mid">
+  <div class="dialog-header">
+    <h2>Répartition des ventes</h2>
+    <button type="button" class="btn btn-small" data-close>Fermer</button>
+  </div>
+
+  <div class="payroll-settings-row">
+    <label>Impôts</label>
+    <div class="combobox-slot" id="payroll-tax-slot"></div>
+    <span class="payroll-settings-hint">% du total, perdus</span>
+  </div>
+  <div class="payroll-settings-row">
+    <label>Part vendeur</label>
+    <div class="combobox-slot" id="payroll-vendor-slot"></div>
+    <span class="payroll-settings-hint">% après impôts, pour l'employé qui encaisse</span>
+  </div>
+
+  <div class="payroll-slider-row">
+    <div class="payroll-slider-label">Pot commun<strong id="payroll-pot-commun-percent">25</strong>%</div>
+    <input type="range" class="payroll-slider" id="payroll-pot-commun-slider" min="0" max="100" step="1" value="25">
+    <div class="payroll-slider-label right"><strong id="payroll-entreprise-percent">75</strong>% Entreprise</div>
+  </div>
+
+  <label class="checkbox-label"><input type="checkbox" id="payroll-apply-contracts"> Appliquer aussi aux encaissements de contrats</label>
+
+  <p class="error-text" id="payroll-error"></p>
+  <div class="dialog-actions">
+    <button type="button" class="btn" data-close>Annuler</button>
+    <button type="button" class="btn btn-primary" id="btn-save-payroll">Enregistrer</button>
   </div>
 </dialog>
 

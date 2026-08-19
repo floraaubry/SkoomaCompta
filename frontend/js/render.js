@@ -2,6 +2,7 @@
 
 function renderAll() {
   renderHeader();
+  renderHome();
   renderClients();
   renderEmployees();
   renderTransactions();
@@ -17,6 +18,7 @@ function renderHeader() {
   const isAdmin = !!(state.user && state.user.isAdmin);
   document.getElementById('btn-manage-users').classList.toggle('hidden', !isAdmin);
   document.getElementById('btn-backup').classList.toggle('hidden', !isAdmin);
+  document.getElementById('btn-payroll-settings').classList.toggle('hidden', !isAdmin);
   document.getElementById('tab-btn-log').classList.toggle('hidden', !isAdmin);
 }
 
@@ -58,6 +60,7 @@ const LOG_ACTION_LABELS = {
   restore_backup: 'Restauration d’une sauvegarde',
   delete_backup: 'Suppression d’une sauvegarde',
   update_backup_settings: 'Modification des paramètres de sauvegarde',
+  update_payroll_settings: 'Modification de la répartition des ventes',
 };
 
 function logActionLabel(action) {
@@ -170,27 +173,298 @@ function renderEmployees() {
   const q = (document.getElementById('employees-search').value || '').trim().toLowerCase();
   const container = document.getElementById('list-employees');
   const items = state.snapshot.employees.filter((e) => e.name.toLowerCase().includes(q));
+  const isAdmin = !!(state.user && state.user.isAdmin);
   container.innerHTML = '';
   if (items.length === 0) {
     container.innerHTML = '<p class="empty-hint">Aucun employé pour le moment.</p>';
     return;
   }
+  const shopBalance = state.snapshot.shop.balance;
   items.forEach((emp) => {
     const row = document.createElement('div');
     row.className = 'card';
+    const canPay = emp.balance > 0 && emp.balance <= shopBalance;
+    const payTitle = emp.balance > 0 && emp.balance > shopBalance ? ' title="Fonds insuffisants dans la caisse"' : '';
     row.innerHTML = `
       <div class="card-main">
         <div class="card-title">${escapeHtml(emp.name)}</div>
-        <div class="card-sub">Salaire : ${fmtGold(emp.salary)} septims &middot; Vendu cette période : ${fmtGold(emp.amountSold)} septims</div>
+        <div class="card-sub">Solde à venir : ${fmtGold(emp.balance)} septims</div>
         ${emp.note ? `<div class="card-note">${escapeHtml(emp.note)}</div>` : ''}
       </div>
       <div class="card-actions">
-        <button class="btn btn-small btn-accent" data-action="pay-employee" data-id="${emp.id}">Payer</button>
+        ${isAdmin ? `<button class="btn btn-small btn-accent" data-action="pay-employee" data-id="${emp.id}"${canPay ? '' : ' disabled'}${payTitle}>Payer</button>` : ''}
         <button class="btn btn-small" data-action="edit-employee" data-id="${emp.id}">Modifier</button>
         <button class="btn btn-small btn-danger" data-action="delete-employee" data-id="${emp.id}">Supprimer</button>
       </div>`;
     container.appendChild(row);
   });
+}
+
+/* ----------------------------------------------------------------- home --*/
+//
+// Accueil is a personal page: whoever is logged in — admin or not — only
+// ever sees their OWN linked employee's recap here, never anyone else's.
+// (Admins still manage every employee's pay from the Employés tab.) It's
+// built on the fly from transactions' stored payroll breakdown (vendor share
+// + pot commun shares credited to that employee) — never a stored counter,
+// since nothing would reset it when a month rolls over. "Balance to come" is
+// the actual employee.balance running total, separate from the chart.
+//
+// The month-over-month ranking is computed from the full employee/
+// transaction list already present in state.snapshot (every connected
+// client receives the full synced snapshot regardless of role) — only the
+// numeric rank is ever shown, never other employees' names or amounts.
+
+const MONTH_HISTORY_COUNT = 6;
+const MONTH_LABELS = ['Janv.', 'Févr.', 'Mars', 'Avr.', 'Mai', 'Juin', 'Juil.', 'Août', 'Sept.', 'Oct.', 'Nov.', 'Déc.'];
+
+function parseTxDate(str) {
+  return new Date(String(str).replace(' ', 'T'));
+}
+
+function round2(n) {
+  return Math.round((Number(n) || 0) * 100) / 100;
+}
+
+function monthLabel(d) {
+  return MONTH_LABELS[d.getMonth()];
+}
+
+function recentMonthBuckets(count) {
+  const now = new Date();
+  const currentStart = new Date(now.getFullYear(), now.getMonth(), 1);
+  const buckets = [];
+  for (let i = count - 1; i >= 0; i -= 1) {
+    const start = new Date(currentStart.getFullYear(), currentStart.getMonth() - i, 1);
+    const end = new Date(start.getFullYear(), start.getMonth() + 1, 1);
+    buckets.push({ start, end });
+  }
+  return buckets;
+}
+
+function startOfWeek(date) {
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  const mondayOffset = (d.getDay() + 6) % 7;
+  d.setDate(d.getDate() - mondayOffset);
+  return d;
+}
+
+function lastWeekRange() {
+  const currentWeekStart = startOfWeek(new Date());
+  const start = new Date(currentWeekStart);
+  start.setDate(start.getDate() - 7);
+  return { start, end: currentWeekStart };
+}
+
+function currentWeekRange() {
+  const start = startOfWeek(new Date());
+  const end = new Date(start);
+  end.setDate(end.getDate() + 7);
+  return { start, end };
+}
+
+function employeeEarningsBetween(employeeId, start, end) {
+  let total = 0;
+  state.snapshot.transactions.forEach((t) => {
+    const payroll = t.payroll;
+    if (!payroll) return;
+    const d = parseTxDate(t.date);
+    if (d < start || d >= end) return;
+    if (payroll.vendorEmployeeId === employeeId) total += payroll.vendorAmount;
+    (payroll.potCommunShares || []).forEach((s) => {
+      if (s.employeeId === employeeId) total += s.amount;
+    });
+  });
+  return round2(total);
+}
+
+function employeeMonthlySeries(employeeId, buckets) {
+  return buckets.map(({ start, end }) => employeeEarningsBetween(employeeId, start, end));
+}
+
+function frenchOrdinal(n) {
+  return n === 1 ? '1er' : `${n}e`;
+}
+
+// Ranks every employee by earnings over [start, end) and returns only the
+// current employee's position — the other employees' totals never leave
+// this function, so nothing about them is rendered.
+function rankForPeriod(employeeId, start, end) {
+  const totals = state.snapshot.employees.map((e) => employeeEarningsBetween(e.id, start, end));
+  const mine = employeeEarningsBetween(employeeId, start, end);
+  const ahead = totals.filter((t) => t > mine).length;
+  return { rank: ahead + 1, of: totals.length };
+}
+
+// 4px rounded top corners, square baseline (per the bar mark spec) — SVG has
+// no per-corner border-radius, so the shape is drawn as an explicit path.
+function roundedBarPath(x, width, yTop, yBottom) {
+  const r = Math.max(0, Math.min(4, width / 2, yBottom - yTop));
+  if (r < 0.5) {
+    return `M${x},${yBottom} L${x},${yTop} L${x + width},${yTop} L${x + width},${yBottom} Z`;
+  }
+  return (
+    `M${x},${yBottom} L${x},${yTop + r} Q${x},${yTop} ${x + r},${yTop} ` +
+    `L${x + width - r},${yTop} Q${x + width},${yTop} ${x + width},${yTop + r} ` +
+    `L${x + width},${yBottom} Z`
+  );
+}
+
+const HOME_CHART_BAND = 84;
+const HOME_CHART_BAR_WIDTH = 24;
+const HOME_CHART_H = 110;
+
+function monthlyBarChartSvg(values, buckets) {
+  const barCount = values.length;
+  const chartW = barCount * HOME_CHART_BAND;
+  const totalH = HOME_CHART_H + 40;
+  const maxValue = Math.max(1, ...values);
+
+  let bars = '';
+  let valueLabel = '';
+  values.forEach((v, i) => {
+    const isCurrent = i === barCount - 1;
+    const x = i * HOME_CHART_BAND + (HOME_CHART_BAND - HOME_CHART_BAR_WIDTH) / 2;
+    const h = v > 0 ? Math.max(3, (v / maxValue) * (HOME_CHART_H - 24)) : 0;
+    const yTop = HOME_CHART_H - h;
+    const fill = isCurrent ? 'var(--color-gold-bright)' : 'rgba(201, 162, 39, 0.32)';
+    const path = h > 0 ? `<path d="${roundedBarPath(x, HOME_CHART_BAR_WIDTH, yTop, HOME_CHART_H)}" fill="${fill}"></path>` : '';
+    const label = escapeHtml(monthLabel(buckets[i].start));
+    bars += `
+      <g class="home-chart-bar" tabindex="0" data-month="${label}" data-value="${v}">
+        <title>${label} : ${fmtGold(v)} septims</title>
+        <rect x="${x}" y="0" width="${HOME_CHART_BAR_WIDTH}" height="${HOME_CHART_H}" fill="transparent"></rect>
+        ${path}
+      </g>`;
+    if (isCurrent && v > 0) {
+      valueLabel = `<text x="${x + HOME_CHART_BAR_WIDTH / 2}" y="${Math.max(14, yTop - 8)}" text-anchor="middle" class="home-chart-value">${fmtGold(v)}</text>`;
+    }
+  });
+
+  const monthLabels = buckets
+    .map((b, i) => {
+      const x = i * HOME_CHART_BAND + HOME_CHART_BAND / 2;
+      return `<text x="${x}" y="${HOME_CHART_H + 20}" text-anchor="middle" class="home-chart-week">${escapeHtml(monthLabel(b.start))}</text>`;
+    })
+    .join('');
+
+  return `
+    <svg class="home-chart" width="${chartW}" height="${totalH}" viewBox="0 0 ${chartW} ${totalH}" role="img" aria-label="Gains des ${barCount} derniers mois">
+      <line x1="0" y1="${HOME_CHART_H}" x2="${chartW}" y2="${HOME_CHART_H}" class="home-chart-baseline"></line>
+      ${bars}
+      ${valueLabel}
+      ${monthLabels}
+    </svg>`;
+}
+
+let homeChartTooltipEl = null;
+
+function homeChartTooltip() {
+  if (!homeChartTooltipEl) {
+    homeChartTooltipEl = document.createElement('div');
+    homeChartTooltipEl.className = 'home-chart-tooltip hidden';
+    document.body.appendChild(homeChartTooltipEl);
+  }
+  return homeChartTooltipEl;
+}
+
+function showHomeChartTooltip(clientX, clientY, month, value) {
+  const tip = homeChartTooltip();
+  tip.innerHTML = '';
+  const strong = document.createElement('strong');
+  strong.textContent = `${fmtGold(value)} septims`;
+  const span = document.createElement('span');
+  span.textContent = month;
+  tip.appendChild(strong);
+  tip.appendChild(span);
+  tip.style.left = `${clientX + 14}px`;
+  tip.style.top = `${clientY + 14}px`;
+  tip.classList.remove('hidden');
+}
+
+function hideHomeChartTooltip() {
+  if (homeChartTooltipEl) homeChartTooltipEl.classList.add('hidden');
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  const container = document.getElementById('list-home');
+  if (!container) return;
+  container.addEventListener('mouseover', (e) => {
+    const bar = e.target.closest('.home-chart-bar');
+    if (bar) showHomeChartTooltip(e.clientX, e.clientY, bar.dataset.month, Number(bar.dataset.value));
+  });
+  container.addEventListener('mousemove', (e) => {
+    const bar = e.target.closest('.home-chart-bar');
+    if (bar) showHomeChartTooltip(e.clientX, e.clientY, bar.dataset.month, Number(bar.dataset.value));
+  });
+  container.addEventListener('mouseout', (e) => {
+    if (e.target.closest('.home-chart-bar')) hideHomeChartTooltip();
+  });
+  container.addEventListener('focusin', (e) => {
+    const bar = e.target.closest('.home-chart-bar');
+    if (!bar) return;
+    const rect = bar.getBoundingClientRect();
+    showHomeChartTooltip(rect.left, rect.bottom, bar.dataset.month, Number(bar.dataset.value));
+  });
+  container.addEventListener('focusout', (e) => {
+    if (e.target.closest('.home-chart-bar')) hideHomeChartTooltip();
+  });
+});
+
+function renderHome() {
+  const container = document.getElementById('list-home');
+  if (!container) return;
+  container.innerHTML = '';
+
+  const myEmployeeId = state.user && state.user.employeeId;
+  const emp = myEmployeeId ? findById(state.snapshot.employees, myEmployeeId) : null;
+  if (!emp) {
+    container.innerHTML = '<p class="empty-hint">Aucun employé associé à votre compte.</p>';
+    return;
+  }
+
+  const buckets = recentMonthBuckets(MONTH_HISTORY_COUNT);
+  const series = employeeMonthlySeries(emp.id, buckets);
+  const currentWeek = currentWeekRange();
+  const ranking = rankForPeriod(emp.id, currentWeek.start, currentWeek.end);
+  const lastWeek = lastWeekRange();
+  const lastWeekTotal = employeeEarningsBetween(emp.id, lastWeek.start, lastWeek.end);
+  const lastPay = (emp.payHistory || [])[emp.payHistory.length - 1];
+
+  const profile = document.createElement('div');
+  profile.className = 'home-profile';
+  profile.innerHTML = `
+    <div class="home-profile-header">
+      <div>
+        <h2 class="home-profile-name">${escapeHtml(emp.name)}</h2>
+        ${emp.note ? `<div class="home-profile-sub">${escapeHtml(emp.note)}</div>` : ''}
+      </div>
+    </div>
+
+    <div class="home-stats-row">
+      <div class="stat-tile">
+        <div class="stat-label">Semaine dernière</div>
+        <div class="stat-value">${fmtGold(lastWeekTotal)} septims</div>
+      </div>
+      <div class="stat-tile">
+        <div class="stat-label">Solde à venir</div>
+        <div class="stat-value accent">${fmtGold(emp.balance)} septims</div>
+      </div>
+      ${ranking.of > 1 ? `
+      <div class="stat-tile">
+        <div class="stat-label">Classement cette semaine</div>
+        <div class="stat-value">${frenchOrdinal(ranking.rank)} <span class="stat-value-of">/ ${ranking.of}</span></div>
+      </div>` : ''}
+    </div>
+
+    <div class="home-chart-section">
+      <h3>Historique mensuel</h3>
+      <div class="home-panel-chart">${monthlyBarChartSvg(series, buckets)}</div>
+    </div>
+
+    ${lastPay ? `<p class="home-last-pay">Dernier paiement : ${fmtGold(lastPay.amount)} septims le ${escapeHtml(lastPay.periodEnd)}</p>` : ''}`;
+  container.appendChild(profile);
 }
 
 let transactionFilterClient = FILTER_ALL;

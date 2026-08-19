@@ -34,6 +34,7 @@ log = logging.getLogger("khajiit")
 ADMIN_ACTIONS = {
     "list_users", "create_user", "update_user", "delete_user", "list_logs",
     "list_backups", "create_backup", "restore_backup", "delete_backup", "get_backup_settings", "update_backup_settings",
+    "update_payroll_settings", "pay_employee",
 }
 
 MUTATING_ACTIONS = {
@@ -45,7 +46,7 @@ MUTATING_ACTIONS = {
     "create_transaction", "delete_transaction",
     "create_contract", "update_contract", "delete_contract", "checkout_contract",
     "create_recipe", "update_recipe", "delete_recipe", "craft_recipe",
-    "restore_backup",
+    "restore_backup", "update_payroll_settings",
 }
 
 # Auto-backup: how often the background loop checks whether a backup is due.
@@ -171,6 +172,8 @@ class Server:
             return logic.get_backup_settings(self.db)
         if action == "update_backup_settings":
             return logic.update_backup_settings(self.db, payload, user)
+        if action == "update_payroll_settings":
+            return logic.update_payroll_settings(self.db, payload, user)
 
         raise logic.LogicError(f"Action inconnue : {action}")
 
