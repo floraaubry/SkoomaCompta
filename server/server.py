@@ -34,7 +34,7 @@ log = logging.getLogger("khajiit")
 ADMIN_ACTIONS = {
     "list_users", "create_user", "update_user", "delete_user", "list_logs",
     "list_backups", "create_backup", "restore_backup", "delete_backup", "get_backup_settings", "update_backup_settings",
-    "update_payroll_settings", "pay_employee",
+    "update_payroll_settings", "pay_employee", "pay_taxes",
 }
 
 MUTATING_ACTIONS = {
@@ -46,7 +46,7 @@ MUTATING_ACTIONS = {
     "create_transaction", "delete_transaction",
     "create_contract", "update_contract", "delete_contract", "checkout_contract",
     "create_recipe", "update_recipe", "delete_recipe", "craft_recipe",
-    "restore_backup", "update_payroll_settings",
+    "restore_backup", "update_payroll_settings", "pay_taxes",
 }
 
 # Auto-backup: how often the background loop checks whether a backup is due.
@@ -57,6 +57,11 @@ class Server:
     def __init__(self):
         self.db = dbmod.Database()
         self.clients = {}  # websocket -> public user dict, or None if not logged in
+        # Legacy data on disk may predate recipe-derived purchase prices, or a
+        # recipe/ingredient price may have been edited outside a mutating
+        # action (e.g. a restored backup) — settle them once at startup.
+        logic.recalc_all_recipe_prices(self.db)
+        self.db.save_one("products")
 
     async def broadcast_sync(self):
         if not self.clients:
@@ -174,6 +179,8 @@ class Server:
             return logic.update_backup_settings(self.db, payload, user)
         if action == "update_payroll_settings":
             return logic.update_payroll_settings(self.db, payload, user)
+        if action == "pay_taxes":
+            return logic.pay_taxes(self.db, payload, user)
 
         raise logic.LogicError(f"Action inconnue : {action}")
 

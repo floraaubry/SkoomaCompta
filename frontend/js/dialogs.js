@@ -116,6 +116,7 @@ document.getElementById('form-employee').addEventListener('submit', async (e) =>
 
 let productQuantitySpinbox = null;
 let productSellPriceSpinbox = null;
+let productPurchasePriceSpinbox = null;
 
 function openProductDialog(product) {
   document.getElementById('product-dialog-title').textContent = product ? 'Modifier le produit' : 'Nouveau produit';
@@ -132,6 +133,25 @@ function openProductDialog(product) {
   productSellPriceSpinbox = createSpinbox({ min: 0, step: 0.01, value: product ? product.sellPrice : 0 });
   priceSlot.appendChild(productSellPriceSpinbox.root);
 
+  // A recipe-output product's cost is derived from its ingredients (see
+  // server logic.recalc_all_recipe_prices) — the field is shown read-only
+  // instead of a spinbox, and left out of the submit payload entirely.
+  const isRecipeOutput = !!(product && state.snapshot.recipes.some((r) => r.output.productId === product.id));
+  const purchasePriceSlot = document.getElementById('product-purchase-price-slot');
+  const autoHint = document.getElementById('product-purchase-price-auto');
+  purchasePriceSlot.innerHTML = '';
+  if (isRecipeOutput) {
+    productPurchasePriceSpinbox = null;
+    purchasePriceSlot.classList.add('hidden');
+    autoHint.classList.remove('hidden');
+    document.getElementById('product-purchase-price-auto-value').textContent = fmtGold(product.purchasePrice);
+  } else {
+    purchasePriceSlot.classList.remove('hidden');
+    autoHint.classList.add('hidden');
+    productPurchasePriceSpinbox = createSpinbox({ min: 0, step: 0.01, value: product ? product.purchasePrice : 0 });
+    purchasePriceSlot.appendChild(productPurchasePriceSpinbox.root);
+  }
+
   document.getElementById('product-error').textContent = '';
   document.getElementById('dialog-product').showModal();
 }
@@ -144,6 +164,7 @@ document.getElementById('form-product').addEventListener('submit', async (e) => 
     quantity: productQuantitySpinbox.getValue(),
     sellPrice: productSellPriceSpinbox.getValue(),
   };
+  if (productPurchasePriceSpinbox) payload.purchasePrice = productPurchasePriceSpinbox.getValue();
   const errorEl = document.getElementById('product-error');
   try {
     if (id) {
@@ -661,6 +682,27 @@ document.getElementById('form-pay').addEventListener('submit', async (e) => {
     toast('Employé payé.', 'info');
   } catch (err) {
     document.getElementById('pay-error').textContent = err.message;
+  }
+});
+
+/* ------------------------------------------------------- pay taxes dialog */
+
+function openPayTaxesDialog() {
+  const shop = state.snapshot.shop;
+  document.getElementById('pay-taxes-since').textContent = shop.taxesSince || '—';
+  document.getElementById('pay-taxes-total').textContent = fmtGold(shop.taxesOwed || 0);
+  document.getElementById('pay-taxes-error').textContent = '';
+  document.getElementById('dialog-pay-taxes').showModal();
+}
+
+document.getElementById('form-pay-taxes').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  try {
+    await ke.request('pay_taxes', {});
+    document.getElementById('dialog-pay-taxes').close();
+    toast('Impôts comptabilisés.', 'info');
+  } catch (err) {
+    document.getElementById('pay-taxes-error').textContent = err.message;
   }
 });
 

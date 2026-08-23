@@ -427,6 +427,13 @@ textarea {
   color: #ff8b8b;
 }
 
+.field-hint {
+  color: var(--color-text-muted);
+  font-size: 0.82rem;
+  font-style: italic;
+  margin: -6px 0 8px;
+}
+
 /* ----------------------------------------------------------------- topbar */
 
 .topbar {
@@ -903,6 +910,25 @@ textarea {
   color: var(--color-text-muted);
   font-size: 0.88rem;
   font-style: italic;
+}
+
+.home-admin-recap {
+  max-width: 720px;
+  margin: 40px auto 0;
+  padding: 28px 4px 40px;
+  border-top: 1px solid var(--color-iron-border);
+}
+
+.home-admin-recap h3 {
+  font-family: var(--font-heading);
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--color-text-light);
+  margin: 0 0 16px;
+}
+
+.home-admin-recap h3.home-taxes-history-title {
+  margin-top: 28px;
 }
 
 .home-chart {

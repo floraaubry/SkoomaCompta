@@ -219,6 +219,9 @@
     <div class="combobox-slot" id="product-quantity-slot"></div>
     <label>Prix de vente (septims)</label>
     <div class="combobox-slot" id="product-sell-price-slot"></div>
+    <label>Prix d'achat (septims)</label>
+    <div class="combobox-slot" id="product-purchase-price-slot"></div>
+    <p class="field-hint hidden" id="product-purchase-price-auto">Calculé automatiquement depuis la recette : <strong id="product-purchase-price-auto-value">0</strong> septims.</p>
     <p class="error-text" id="product-error"></p>
     <div class="dialog-actions">
       <button type="button" class="btn" data-close>Annuler</button>
@@ -351,6 +354,20 @@
   </form>
 </dialog>
 
+<!-- PAY TAXES DIALOG (admin only) -->
+<dialog id="dialog-pay-taxes" class="ke-dialog">
+  <form id="form-pay-taxes">
+    <h2>Payer les impôts</h2>
+    <p class="pay-line">Montant dû depuis le <strong id="pay-taxes-since">—</strong></p>
+    <p class="pay-line pay-total">Total : <strong id="pay-taxes-total">0</strong> septims</p>
+    <p class="error-text" id="pay-taxes-error"></p>
+    <div class="dialog-actions">
+      <button type="button" class="btn" data-close>Annuler</button>
+      <button type="submit" class="btn btn-primary">Payer</button>
+    </div>
+  </form>
+</dialog>
+
 <!-- MANAGE USERS DIALOG (admin only) -->
 <dialog id="dialog-users" class="ke-dialog wide">
   <div class="dialog-header">
@@ -414,7 +431,7 @@
   <div class="payroll-settings-row">
     <label>Impôts</label>
     <div class="combobox-slot" id="payroll-tax-slot"></div>
-    <span class="payroll-settings-hint">% du total, perdus</span>
+    <span class="payroll-settings-hint">% de la marge (prix de vente − prix d'achat), mis de côté</span>
   </div>
   <div class="payroll-settings-row">
     <label>Part vendeur</label>

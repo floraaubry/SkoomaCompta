@@ -43,6 +43,7 @@ const LOG_ACTION_LABELS = {
   update_employee: 'Modification d’employé',
   delete_employee: 'Suppression d’employé',
   pay_employee: 'Paiement d’employé',
+  pay_taxes: 'Paiement des impôts',
   create_product: 'Création de produit',
   update_product: 'Modification de produit',
   delete_product: 'Suppression de produit',
@@ -202,18 +203,22 @@ function renderEmployees() {
 
 /* ----------------------------------------------------------------- home --*/
 //
-// Accueil is a personal page: whoever is logged in — admin or not — only
-// ever sees their OWN linked employee's recap here, never anyone else's.
-// (Admins still manage every employee's pay from the Employés tab.) It's
-// built on the fly from transactions' stored payroll breakdown (vendor share
-// + pot commun shares credited to that employee) — never a stored counter,
+// Accueil's personal section shows whoever is logged in — admin or not —
+// only their OWN linked employee's recap, never anyone else's. It's built
+// on the fly from transactions' stored payroll breakdown (vendor share +
+// pot commun shares credited to that employee) — never a stored counter,
 // since nothing would reset it when a month rolls over. "Balance to come" is
 // the actual employee.balance running total, separate from the chart.
 //
-// The month-over-month ranking is computed from the full employee/
-// transaction list already present in state.snapshot (every connected
-// client receives the full synced snapshot regardless of role) — only the
-// numeric rank is ever shown, never other employees' names or amounts.
+// For a non-admin, the month-over-month ranking is computed from the full
+// employee/transaction list already present in state.snapshot (every
+// connected client receives the full synced snapshot regardless of role) —
+// only the numeric rank is ever shown, never other employees' names or
+// amounts.
+//
+// Admins additionally get a recap of every employee (name, last week,
+// current month, balance to come) so the general view doubles as an
+// at-a-glance dashboard — see renderEmployeesRecap below.
 
 const MONTH_HISTORY_COUNT = 6;
 const MONTH_LABELS = ['Janv.', 'Févr.', 'Mars', 'Avr.', 'Mai', 'Juin', 'Juil.', 'Août', 'Sept.', 'Oct.', 'Nov.', 'Déc.'];
@@ -412,15 +417,92 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 });
 
+function renderTaxesSection() {
+  const shop = state.snapshot.shop;
+  const owed = shop.taxesOwed || 0;
+  const since = shop.taxesSince;
+  const history = (shop.taxHistory || []).slice().reverse();
+
+  const section = document.createElement('div');
+  section.className = 'home-admin-recap';
+
+  const historyRows = history.length
+    ? history
+        .map(
+          (h) => `
+        <div class="card">
+          <div class="card-main">
+            <div class="card-title">Semaine du ${escapeHtml(h.periodStart)} au ${escapeHtml(h.periodEnd)}</div>
+          </div>
+          <div class="card-actions">
+            <div class="stat-value">${fmtGold(h.amount)} septims</div>
+          </div>
+        </div>`
+        )
+        .join('')
+    : '<p class="empty-hint">Aucun paiement d’impôts enregistré pour le moment.</p>';
+
+  section.innerHTML = `
+    <h3>Impôts</h3>
+    <div class="card">
+      <div class="card-main">
+        <div class="card-title">Montant dû</div>
+        ${since ? `<div class="card-sub">Depuis le ${escapeHtml(since)}</div>` : ''}
+      </div>
+      <div class="card-actions">
+        <div class="stat-value accent">${fmtGold(owed)} septims</div>
+        <button class="btn btn-small btn-accent" data-action="pay-taxes"${owed > 0 ? '' : ' disabled'}>Payer</button>
+      </div>
+    </div>
+    <h3 class="home-taxes-history-title">Historique des semaines</h3>
+    <div class="list">${historyRows}</div>`;
+  return section;
+}
+
+function renderEmployeesRecap() {
+  const section = document.createElement('div');
+  section.className = 'home-admin-recap';
+
+  const employees = state.snapshot.employees;
+  const lastWeek = lastWeekRange();
+
+  const rows = employees
+    .map((e) => {
+      const lastWeekTotal = employeeEarningsBetween(e.id, lastWeek.start, lastWeek.end);
+      return `
+        <div class="card">
+          <div class="card-main">
+            <div class="card-title">${escapeHtml(e.name)}</div>
+            <div class="card-sub">Semaine dernière : ${fmtGold(lastWeekTotal)} septims</div>
+          </div>
+          <div class="card-actions">
+            <div class="stat-value accent">${fmtGold(e.balance)} septims</div>
+          </div>
+        </div>`;
+    })
+    .join('');
+
+  section.innerHTML = `
+    <h3>Récapitulatif des employés de la semaine</h3>
+    ${employees.length ? `<div class="list">${rows}</div>` : '<p class="empty-hint">Aucun employé pour le moment.</p>'}`;
+  return section;
+}
+
 function renderHome() {
   const container = document.getElementById('list-home');
   if (!container) return;
   container.innerHTML = '';
 
+  const isAdmin = !!(state.user && state.user.isAdmin);
   const myEmployeeId = state.user && state.user.employeeId;
   const emp = myEmployeeId ? findById(state.snapshot.employees, myEmployeeId) : null;
-  if (!emp) {
+  if (!emp && !isAdmin) {
     container.innerHTML = '<p class="empty-hint">Aucun employé associé à votre compte.</p>';
+    return;
+  }
+  if (!emp) {
+    container.appendChild(renderTaxesSection());
+    container.appendChild(renderEmployeesRecap());
     return;
   }
 
@@ -465,6 +547,11 @@ function renderHome() {
 
     ${lastPay ? `<p class="home-last-pay">Dernier paiement : ${fmtGold(lastPay.amount)} septims le ${escapeHtml(lastPay.periodEnd)}</p>` : ''}`;
   container.appendChild(profile);
+
+  if (isAdmin) {
+    container.appendChild(renderTaxesSection());
+    container.appendChild(renderEmployeesRecap());
+  }
 }
 
 let transactionFilterClient = FILTER_ALL;
@@ -609,7 +696,7 @@ function renderStock() {
 
     const main = document.createElement('div');
     main.className = 'card-main';
-    main.innerHTML = `<div class="card-title">${escapeHtml(p.name)}</div><div class="card-sub">${fmtGold(p.sellPrice)} septims l'unité</div>`;
+    main.innerHTML = `<div class="card-title">${escapeHtml(p.name)}</div><div class="card-sub">${fmtGold(p.sellPrice)} septims l'unité · Achat : ${fmtGold(p.purchasePrice)} septims</div>`;
 
     const spinboxSlot = document.createElement('div');
     const spinbox = createSpinbox({

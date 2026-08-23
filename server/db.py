@@ -18,14 +18,20 @@ BACKUP_DIR = os.path.join(DATA_DIR, "backups")
 DEFAULTS = {
     "shop": {
         "shopName": "", "balance": 0, "setupComplete": False,
-        # Sale split: taxPercent of the total is discarded, vendorPercent of
-        # what's left goes to the employee who recorded the sale, and
+        # Sale split: taxPercent of the sale's MARGIN (total minus cost of
+        # goods sold, never the total itself) is set aside — added to
+        # taxesOwed, never to balance — then vendorPercent of what's left of
+        # the total after tax goes to the employee who recorded the sale, and
         # potCommunPercent of what's left after that is split evenly across
         # every employee that exists at the time of the sale (the rest stays
         # in the shop balance as company profit). See logic.py's
         # _compute_payroll_split for the actual math.
         "taxPercent": 18, "vendorPercent": 50, "potCommunPercent": 25,
         "applySplitToContracts": False,
+        # Running tally of set-aside tax money not yet recorded as paid, plus
+        # the weekly history of past pay_taxes calls. taxesSince marks when
+        # the current tally started accruing (mirrors employee.balanceSince).
+        "taxesOwed": 0, "taxesSince": None, "taxHistory": [],
     },
     "users": [],
     "employees": [],
@@ -83,6 +89,19 @@ def normalize_employee(employee):
 
 def normalize_employees(employees):
     return [normalize_employee(e) for e in employees]
+
+
+def normalize_product(product):
+    """Backfills purchasePrice onto product dicts saved before it existed.
+    The correct value for recipe-output products is recomputed right after
+    load (see logic.recalc_all_recipe_prices) — this just guarantees the key
+    is present so plain products never break on a missing field."""
+    product.setdefault("purchasePrice", 0)
+    return product
+
+
+def normalize_products(products):
+    return [normalize_product(p) for p in products]
 
 
 def _atomic_write_json(directory, path, prefix, data):
@@ -187,7 +206,7 @@ class Database:
         self.users = load("users")
         self.employees = normalize_employees(load("employees"))
         self.clients = load("clients")
-        self.products = load("products")
+        self.products = normalize_products(load("products"))
         self.transactions = load("transactions")
         self.contracts = load("contracts")
         self.recipes = load("recipes")
@@ -198,6 +217,7 @@ class Database:
         # in-memory shape even before the next mutating action saves them.
         save("shop", self.shop)
         save("employees", self.employees)
+        save("products", self.products)
 
     def save_all(self):
         for name in DEFAULTS:

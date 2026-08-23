@@ -320,23 +320,20 @@ def update_employee(db, payload, acting_user):
     return employee
 
 
-def _transaction_references_employee(transaction, employee_id):
-    if transaction.get("employeeId") == employee_id:
-        return True
-    payroll = transaction.get("payroll")
-    if not payroll:
-        return False
-    if payroll.get("vendorEmployeeId") == employee_id:
-        return True
-    return any(share["employeeId"] == employee_id for share in payroll.get("potCommunShares", []))
-
-
 def delete_employee(db, payload, acting_user):
+    # Past transactions are deliberately allowed to keep referencing a
+    # deleted employee's id (vendorEmployeeId / potCommunShares / the plain
+    # employeeId field) — every lookup of those ids already tolerates a
+    # missing employee (find_employee_or_none server-side, findById + a "—"
+    # fallback client-side), so the historical record just shows a blank
+    # name instead of breaking. Blocking deletion on "has transactions" would
+    # make almost every employee permanently undeletable, since a single
+    # sale credits pot commun shares to every employee that existed at the
+    # time. What's still worth guarding: an employee that's someone's login
+    # identity, or one still owed money.
     employee = find_employee(db, payload.get("id"))
     if any(u.get("employeeId") == employee["id"] for u in db.users):
         raise LogicError("Impossible de supprimer un employé associé à un compte utilisateur.")
-    if any(_transaction_references_employee(t, employee["id"]) for t in db.transactions):
-        raise LogicError("Impossible de supprimer un employé ayant des transactions existantes.")
     if employee.get("balance"):
         raise LogicError("Impossible de supprimer un employé ayant un solde à venir non nul.")
     db.employees.remove(employee)
@@ -388,6 +385,33 @@ def pay_employee(db, payload, acting_user):
 
 # ---------------------------------------------------------------- products --
 
+def _is_recipe_output(db, product_id):
+    return any(r["output"]["productId"] == product_id for r in db.recipes)
+
+
+def recalc_all_recipe_prices(db):
+    """Recomputes purchasePrice for every recipe-output product from the
+    current purchasePrice of its ingredients. Runs as a fixed-point loop
+    (bounded by the recipe count) instead of a single top-down pass so that
+    chained recipes — a product that is itself crafted from other crafted
+    products — settle correctly regardless of recipe order."""
+    for _ in range(len(db.recipes) + 1):
+        changed = False
+        for recipe in db.recipes:
+            product = find_product(db, recipe["output"]["productId"])
+            output_qty = recipe["output"]["quantity"] or 1
+            cost = sum(
+                find_product(db, ing["productId"])["purchasePrice"] * ing["quantity"]
+                for ing in recipe["ingredients"]
+            )
+            new_price = round2(cost / output_qty)
+            if new_price != product.get("purchasePrice"):
+                product["purchasePrice"] = new_price
+                changed = True
+        if not changed:
+            break
+
+
 def create_product(db, payload, acting_user):
     name = (payload.get("name") or "").strip()
     if not name:
@@ -397,12 +421,16 @@ def create_product(db, payload, acting_user):
     except (TypeError, ValueError):
         raise LogicError("La quantité et le prix doivent être des nombres.")
     sell_price = to_money(payload.get("sellPrice", 0), "La quantité et le prix doivent être des nombres.")
+    purchase_price = to_money(payload.get("purchasePrice", 0), "Le prix d'achat doit être un nombre.")
     if quantity < 0:
         raise LogicError("La quantité ne peut pas être négative.")
     if sell_price < 0:
         raise LogicError("Le prix ne peut pas être négatif.")
-    product = {"id": new_id(), "name": name, "quantity": quantity, "sellPrice": sell_price}
+    if purchase_price < 0:
+        raise LogicError("Le prix d'achat ne peut pas être négatif.")
+    product = {"id": new_id(), "name": name, "quantity": quantity, "sellPrice": sell_price, "purchasePrice": purchase_price}
     db.products.append(product)
+    recalc_all_recipe_prices(db)
     log_action(
         db, acting_user, "create_product",
         f"Création du produit « {name} » ({quantity} en stock, {sell_price} septims)."
@@ -438,6 +466,16 @@ def update_product(db, payload, acting_user):
         if sell_price != product["sellPrice"]:
             changes.append(f"prix {product['sellPrice']} → {sell_price} septims")
         product["sellPrice"] = sell_price
+    if "purchasePrice" in payload:
+        if _is_recipe_output(db, product["id"]):
+            raise LogicError("Le prix d'achat de ce produit est calculé automatiquement depuis sa recette.")
+        purchase_price = to_money(payload["purchasePrice"], "Le prix d'achat doit être un nombre.")
+        if purchase_price < 0:
+            raise LogicError("Le prix d'achat ne peut pas être négatif.")
+        if purchase_price != product["purchasePrice"]:
+            changes.append(f"prix d'achat {product['purchasePrice']} → {purchase_price} septims")
+        product["purchasePrice"] = purchase_price
+    recalc_all_recipe_prices(db)
     log_action(
         db, acting_user, "update_product",
         f"Modification du produit « {product['name']} »" + (f" : {', '.join(changes)}." if changes else ".")
@@ -479,17 +517,23 @@ def _content_summary(content):
 # ------------------------------------------------------------ payroll split --
 #
 # Every sale (direction "in") splits its total between four buckets, applied
-# in sequence: Impôts (taxPercent of the total, simply discarded), Part
-# Vendeur (vendorPercent of what's left after tax, credited to the employee
-# linked to the acting user), then whatever remains splits between Entreprise
-# and Pot Commun (potCommunPercent of it, split evenly across every employee
-# that currently exists — Entreprise is the complement and isn't tracked
-# separately, it's just what stays in the shop balance). If the acting user
-# has no linked employee, their vendor share folds into the Pot Commun pool
-# instead of being lost. The breakdown is stored on the transaction itself
-# (see create_transaction / checkout_contract) so delete_transaction can
-# reverse it exactly, employee by employee, even if the employee roster has
-# changed since.
+# in sequence: Impôts (taxPercent of the sale's MARGIN — total minus the cost
+# of goods sold, never the raw total — added to shop.taxesOwed but NOT to
+# balance), Part Vendeur (vendorPercent of what's left of the total after tax,
+# credited to the employee linked to the acting user), then whatever remains
+# splits between Entreprise and Pot Commun (potCommunPercent of it, split
+# evenly across every employee that currently exists — Entreprise is the
+# complement and isn't tracked separately, it's just what stays in the shop
+# balance). If the acting user has no linked employee, their vendor share
+# folds into the Pot Commun pool instead of being lost. The breakdown is
+# stored on the transaction itself (see create_transaction / checkout_contract)
+# so delete_transaction can reverse it exactly, employee by employee (and
+# taxesOwed), even if the employee roster has changed since.
+#
+# taxesOwed is a separate running tally (see pay_taxes) purely for reporting/
+# bookkeeping — money set aside for tax was already excluded from balance the
+# moment it was earned, so paying it never touches balance again; it only
+# resets the tally and archives it into shop.taxHistory.
 
 def _split_evenly(total, employees):
     """Splits `total` septims evenly across `employees`, in integer centimes,
@@ -509,12 +553,13 @@ def _split_evenly(total, employees):
     return shares
 
 
-def _compute_payroll_split(db, total, acting_user):
+def _compute_payroll_split(db, total, acting_user, cogs=0):
     tax_percent = db.shop.get("taxPercent", 0)
     vendor_percent = db.shop.get("vendorPercent", 0)
     pot_commun_percent = db.shop.get("potCommunPercent", 0)
 
-    tax_amount = round2(total * tax_percent / 100)
+    margin = max(0, round2(total - cogs))
+    tax_amount = round2(margin * tax_percent / 100)
     after_tax = round2(total - tax_amount)
     vendor_amount = round2(after_tax * vendor_percent / 100)
     remainder = round2(after_tax - vendor_amount)
@@ -532,6 +577,9 @@ def _compute_payroll_split(db, total, acting_user):
         employee["balance"] = round2(employee.get("balance", 0) + share["amount"])
 
     db.shop["balance"] = round2(db.shop["balance"] + after_tax)
+    db.shop["taxesOwed"] = round2(db.shop.get("taxesOwed", 0) + tax_amount)
+    if tax_amount and not db.shop.get("taxesSince"):
+        db.shop["taxesSince"] = now_iso()
 
     return {
         "taxAmount": tax_amount,
@@ -546,6 +594,7 @@ def _compute_payroll_split(db, total, acting_user):
 
 def _reverse_payroll_split(db, payroll):
     db.shop["balance"] = round2(db.shop["balance"] - payroll["afterTaxAmount"])
+    db.shop["taxesOwed"] = max(0, round2(db.shop.get("taxesOwed", 0) - payroll.get("taxAmount", 0)))
     if payroll.get("vendorEmployeeId"):
         employee = find_employee_or_none(db, payroll["vendorEmployeeId"])
         if employee:
@@ -605,6 +654,32 @@ def update_payroll_settings(db, payload, acting_user):
     return db.shop
 
 
+def pay_taxes(db, payload, acting_user):
+    """Archives the current taxesOwed tally into taxHistory and resets it to
+    zero. Doesn't touch balance: that money was already excluded from balance
+    the moment each sale set it aside (see _compute_payroll_split) — this is
+    purely a bookkeeping record of "impôts comptabilisés this week"."""
+    total = round2(db.shop.get("taxesOwed", 0))
+    if total <= 0:
+        raise LogicError("Aucun montant d'impôts à comptabiliser.")
+
+    paid_at = now_iso()
+    period_start = db.shop.get("taxesSince") or paid_at
+
+    db.shop.setdefault("taxHistory", []).append({
+        "id": new_id(),
+        "periodStart": period_start,
+        "periodEnd": paid_at,
+        "amount": total,
+    })
+    db.shop["taxesOwed"] = 0
+    db.shop["taxesSince"] = None
+
+    log_action(db, acting_user, "pay_taxes", f"Comptabilisation des impôts : {total} septims.")
+    db.save_one("shop")
+    return db.shop
+
+
 def create_transaction(db, payload, acting_user):
     direction = payload.get("direction")
     client_id = payload.get("clientId")
@@ -645,6 +720,7 @@ def create_transaction(db, payload, acting_user):
             "productName": product["name"],
             "quantity": quantity,
             "unitPrice": product["sellPrice"],
+            "unitCost": product["purchasePrice"],
             "lineTotal": round2(product["sellPrice"] * quantity),
         })
 
@@ -662,7 +738,8 @@ def create_transaction(db, payload, acting_user):
     payroll = None
     if direction == "in":
         client["totalEarned"] = round2(client.get("totalEarned", 0) + total)
-        payroll = _compute_payroll_split(db, total, acting_user)
+        cogs = round2(sum(line["unitCost"] * line["quantity"] for line in resolved))
+        payroll = _compute_payroll_split(db, total, acting_user, cogs)
     else:
         db.shop["balance"] = round2(db.shop["balance"] - total)
 
@@ -856,6 +933,7 @@ def checkout_contract(db, payload, acting_user):
             "productName": product["name"],
             "quantity": item["quantity"],
             "unitPrice": product["sellPrice"],
+            "unitCost": product["purchasePrice"],
             "lineTotal": round2(product["sellPrice"] * item["quantity"]),
         })
     subtotal = round2(sum(line["lineTotal"] for line in resolved))
@@ -883,7 +961,8 @@ def checkout_contract(db, payload, acting_user):
             find_product(db, line["productId"])["quantity"] -= line["quantity"]
         client["totalEarned"] = round2(client.get("totalEarned", 0) + total)
         if db.shop.get("applySplitToContracts"):
-            payroll = _compute_payroll_split(db, total, acting_user)
+            cogs = round2(sum(line["unitCost"] * line["quantity"] for line in resolved))
+            payroll = _compute_payroll_split(db, total, acting_user, cogs)
         else:
             db.shop["balance"] = round2(db.shop["balance"] + total)
     else:
@@ -949,8 +1028,10 @@ def create_recipe(db, payload, acting_user):
     recipe = {"id": new_id(), "ingredients": ingredients, "output": output}
     db.recipes.append(recipe)
     output_product = find_product(db, output["productId"])
+    recalc_all_recipe_prices(db)
     log_action(db, acting_user, "create_recipe", f"Création de la recette « {output_product['name']} ».")
     db.save_one("recipes")
+    db.save_one("products")
     return recipe
 
 
@@ -961,8 +1042,10 @@ def update_recipe(db, payload, acting_user):
     if payload.get("output") is not None:
         recipe["output"] = _resolve_recipe_output(db, payload["output"])
     output_product = find_product(db, recipe["output"]["productId"])
+    recalc_all_recipe_prices(db)
     log_action(db, acting_user, "update_recipe", f"Modification de la recette « {output_product['name']} ».")
     db.save_one("recipes")
+    db.save_one("products")
     return recipe
 
 
@@ -1058,6 +1141,8 @@ def restore_backup(db, payload, acting_user):
         setattr(db, name, data.get(name, dbmod.default_collection(name)))
     db.shop = dbmod.normalize_shop(db.shop)
     db.employees = dbmod.normalize_employees(db.employees)
+    db.products = dbmod.normalize_products(db.products)
+    recalc_all_recipe_prices(db)
     db.save_all()
     log_action(db, acting_user, "restore_backup", f"Restauration depuis la sauvegarde {backup_id}.")
     return {"snapshot": db.snapshot()}

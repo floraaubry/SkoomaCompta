@@ -358,6 +358,10 @@ function handleClientAction(e) {
 function handleEmployeeAction(e) {
   const btn = e.target.closest('button[data-action]');
   if (!btn) return;
+  if (btn.dataset.action === 'pay-taxes') {
+    openPayTaxesDialog();
+    return;
+  }
   const id = btn.dataset.id;
   const employee = findById(state.snapshot.employees, id);
   if (!employee) return;
