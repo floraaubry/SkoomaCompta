@@ -1389,6 +1389,11 @@ dialog[open]::backdrop {
   font-size: 0.82rem;
 }
 
+.payroll-settings-row select {
+  width: auto;
+  min-width: 220px;
+}
+
 .payroll-slider-row {
   display: flex;
   align-items: center;

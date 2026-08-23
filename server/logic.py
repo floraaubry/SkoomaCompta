@@ -517,9 +517,10 @@ def _content_summary(content):
 # ------------------------------------------------------------ payroll split --
 #
 # Every sale (direction "in") splits its total between four buckets, applied
-# in sequence: Impôts (taxPercent of the sale's MARGIN — total minus the cost
-# of goods sold, never the raw total — added to shop.taxesOwed but NOT to
-# balance), Part Vendeur (vendorPercent of what's left of the total after tax,
+# in sequence: Impôts (taxPercent of either the sale's MARGIN — total minus
+# the cost of goods sold — or the raw total/CA, depending on shop.taxBase —
+# added to shop.taxesOwed but NOT to balance), Part Vendeur (vendorPercent of
+# what's left of the total after tax,
 # credited to the employee linked to the acting user), then whatever remains
 # splits between Entreprise and Pot Commun (potCommunPercent of it, split
 # evenly across every employee that currently exists — Entreprise is the
@@ -557,9 +558,11 @@ def _compute_payroll_split(db, total, acting_user, cogs=0):
     tax_percent = db.shop.get("taxPercent", 0)
     vendor_percent = db.shop.get("vendorPercent", 0)
     pot_commun_percent = db.shop.get("potCommunPercent", 0)
+    tax_base = db.shop.get("taxBase", "ca")
 
     margin = max(0, round2(total - cogs))
-    tax_amount = round2(margin * tax_percent / 100)
+    tax_base_amount = round2(total) if tax_base == "ca" else margin
+    tax_amount = round2(tax_base_amount * tax_percent / 100)
     after_tax = round2(total - tax_amount)
     vendor_amount = round2(after_tax * vendor_percent / 100)
     remainder = round2(after_tax - vendor_amount)
@@ -638,15 +641,20 @@ def update_payroll_settings(db, payload, acting_user):
     tax_percent = pct("taxPercent", "Le pourcentage d'impôts")
     vendor_percent = pct("vendorPercent", "Le pourcentage de part vendeur")
     pot_commun_percent = pct("potCommunPercent", "Le pourcentage du pot commun")
+    tax_base = payload.get("taxBase", "ca")
+    if tax_base not in ("margin", "ca"):
+        raise LogicError("La base de calcul des impôts doit être « margin » ou « ca ».")
     apply_to_contracts = bool(payload.get("applySplitToContracts"))
 
     db.shop["taxPercent"] = tax_percent
     db.shop["vendorPercent"] = vendor_percent
     db.shop["potCommunPercent"] = pot_commun_percent
+    db.shop["taxBase"] = tax_base
     db.shop["applySplitToContracts"] = apply_to_contracts
+    tax_base_label = "du chiffre d'affaires" if tax_base == "ca" else "de la marge"
     log_action(
         db, acting_user, "update_payroll_settings",
-        f"Répartition des ventes : impôts {tax_percent:g}%, part vendeur {vendor_percent:g}%, "
+        f"Répartition des ventes : impôts {tax_percent:g}% {tax_base_label}, part vendeur {vendor_percent:g}%, "
         f"pot commun {pot_commun_percent:g}% (entreprise {100 - pot_commun_percent:g}%)"
         + (", appliquée aussi aux encaissements de contrats" if apply_to_contracts else "") + "."
     )

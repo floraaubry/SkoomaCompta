@@ -431,7 +431,14 @@
   <div class="payroll-settings-row">
     <label>Impôts</label>
     <div class="combobox-slot" id="payroll-tax-slot"></div>
-    <span class="payroll-settings-hint">% de la marge (prix de vente − prix d'achat), mis de côté</span>
+    <span class="payroll-settings-hint" id="payroll-tax-base-hint">% du chiffre d'affaires (total de la vente), mis de côté</span>
+  </div>
+  <div class="payroll-settings-row">
+    <label>Base de calcul</label>
+    <select id="payroll-tax-base" class="filter-select">
+      <option value="ca">Chiffre d'affaires (total)</option>
+      <option value="margin">Bénéfices (marge)</option>
+    </select>
   </div>
   <div class="payroll-settings-row">
     <label>Part vendeur</label>

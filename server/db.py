@@ -27,6 +27,9 @@ DEFAULTS = {
         # in the shop balance as company profit). See logic.py's
         # _compute_payroll_split for the actual math.
         "taxPercent": 18, "vendorPercent": 50, "potCommunPercent": 25,
+        # taxBase picks what taxPercent is applied to: "ca" (the raw sale
+        # total — the default) or "margin" (total minus cost of goods sold).
+        "taxBase": "ca",
         "applySplitToContracts": False,
         # Running tally of set-aside tax money not yet recorded as paid, plus
         # the weekly history of past pay_taxes calls. taxesSince marks when

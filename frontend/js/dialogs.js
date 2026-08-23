@@ -948,6 +948,13 @@ function updatePayrollEntreprisePercent() {
   document.getElementById('payroll-entreprise-percent').textContent = String(100 - pot);
 }
 
+function updatePayrollTaxBaseHint() {
+  const isCa = document.getElementById('payroll-tax-base').value === 'ca';
+  document.getElementById('payroll-tax-base-hint').textContent = isCa
+    ? '% du chiffre d\'affaires (total de la vente), mis de côté'
+    : '% de la marge (prix de vente − prix d\'achat), mis de côté';
+}
+
 function openPayrollSettingsDialog() {
   document.getElementById('payroll-error').textContent = '';
   const shop = state.snapshot.shop;
@@ -956,6 +963,9 @@ function openPayrollSettingsDialog() {
   taxSlot.innerHTML = '';
   payrollTaxSpinbox = createSpinbox({ min: 0, max: 100, step: 1, value: shop.taxPercent ?? 18 });
   taxSlot.appendChild(payrollTaxSpinbox.root);
+
+  document.getElementById('payroll-tax-base').value = shop.taxBase ?? 'ca';
+  updatePayrollTaxBaseHint();
 
   const vendorSlot = document.getElementById('payroll-vendor-slot');
   vendorSlot.innerHTML = '';
@@ -970,6 +980,7 @@ function openPayrollSettingsDialog() {
 }
 
 document.getElementById('payroll-pot-commun-slider').addEventListener('input', updatePayrollEntreprisePercent);
+document.getElementById('payroll-tax-base').addEventListener('change', updatePayrollTaxBaseHint);
 
 document.getElementById('btn-save-payroll').addEventListener('click', async () => {
   const errorEl = document.getElementById('payroll-error');
@@ -977,6 +988,7 @@ document.getElementById('btn-save-payroll').addEventListener('click', async () =
   try {
     await ke.request('update_payroll_settings', {
       taxPercent: payrollTaxSpinbox.getValue(),
+      taxBase: document.getElementById('payroll-tax-base').value,
       vendorPercent: payrollVendorSpinbox.getValue(),
       potCommunPercent: Number(document.getElementById('payroll-pot-commun-slider').value),
       applySplitToContracts: document.getElementById('payroll-apply-contracts').checked,
