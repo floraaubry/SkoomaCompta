@@ -137,7 +137,7 @@ function renderLogList() {
     const row = document.createElement('div');
     row.className = 'log-row';
     row.innerHTML = `
-      <span class="log-time">${escapeHtml(entry.timestamp)}</span>
+      <span class="log-time">${escapeHtml(formatServerDateTime(entry.timestamp))}</span>
       <span class="log-user">${escapeHtml(entry.userName)}</span>
       <span class="log-message">${escapeHtml(entry.message)}</span>`;
     container.appendChild(row);
@@ -224,7 +224,7 @@ const MONTH_HISTORY_COUNT = 6;
 const MONTH_LABELS = ['Janv.', 'Févr.', 'Mars', 'Avr.', 'Mai', 'Juin', 'Juil.', 'Août', 'Sept.', 'Oct.', 'Nov.', 'Déc.'];
 
 function parseTxDate(str) {
-  return new Date(String(str).replace(' ', 'T'));
+  return parseServerDate(str) || new Date(NaN);
 }
 
 function round2(n) {
@@ -630,7 +630,7 @@ function renderTransactions() {
     row.innerHTML = `
       <div class="card-main">
         <div class="card-title">${t.direction === 'in' ? '&#8593;' : '&#8595;'} ${escapeHtml(t.name)}</div>
-        <div class="card-sub">${escapeHtml(t.date)}</div>
+        <div class="card-sub">${escapeHtml(formatServerDateTime(t.date))}</div>
       </div>
       <div class="transaction-amount ${t.direction}">${t.direction === 'in' ? '+' : '−'}${fmtGold(t.amount)} septims</div>
       <div class="card-actions">

@@ -421,7 +421,7 @@ document.getElementById('form-transaction').addEventListener('submit', async (e)
 
 function openTransactionDetailDialog(transaction) {
   document.getElementById('transaction-detail-title').textContent = transaction.name;
-  document.getElementById('transaction-detail-date').textContent = transaction.date;
+  document.getElementById('transaction-detail-date').textContent = formatServerDateTime(transaction.date);
   const employee = transaction.employeeId ? findById(state.snapshot.employees, transaction.employeeId) : null;
   document.getElementById('transaction-detail-employee').textContent = employee ? employee.name : '—';
   const sign = transaction.direction === 'in' ? '+' : '−';
@@ -871,7 +871,7 @@ async function renderBackupList() {
     row.className = 'backup-row';
     row.innerHTML = `
       <div>
-        <strong>${escapeHtml(b.createdAt)}</strong>
+        <strong>${escapeHtml(formatServerDateTime(b.createdAt))}</strong>
         <span class="badge">${escapeHtml(BACKUP_KIND_LABELS[b.kind] || b.kind)}</span>
         <div class="card-sub">${fmtBytes(b.sizeBytes)}</div>
       </div>
@@ -885,7 +885,7 @@ async function renderBackupList() {
     btn.addEventListener('click', () => {
       const backup = backups.find((x) => x.id === btn.dataset.id);
       confirmDelete(
-        `Restaurer la sauvegarde du ${backup.createdAt} ? Toutes les données actuelles (clients, employés, produits, transactions, solde) seront remplacées.`,
+        `Restaurer la sauvegarde du ${formatServerDateTime(backup.createdAt)} ? Toutes les données actuelles (clients, employés, produits, transactions, solde) seront remplacées.`,
         async () => {
           try {
             await ke.request('restore_backup', { id: backup.id });
@@ -902,7 +902,7 @@ async function renderBackupList() {
   container.querySelectorAll('button[data-action="delete-backup"]').forEach((btn) => {
     btn.addEventListener('click', () => {
       const backup = backups.find((x) => x.id === btn.dataset.id);
-      confirmDelete(`Supprimer la sauvegarde du ${backup.createdAt} ?`, async () => {
+      confirmDelete(`Supprimer la sauvegarde du ${formatServerDateTime(backup.createdAt)} ?`, async () => {
         try {
           await ke.request('delete_backup', { id: backup.id });
           renderBackupList();

@@ -61,12 +61,14 @@ function handleIncomingChatMessage(msg) {
 }
 
 function formatChatTimestamp(timestamp) {
-  // Server sends "YYYY-MM-DD HH:MM" in UTC (see logic.now_iso()).
-  const [datePart, timePart] = (timestamp || '').split(' ');
-  if (!datePart || !timePart) return timestamp || '';
-  if (datePart === new Date().toISOString().slice(0, 10)) return timePart;
-  const [, month, day] = datePart.split('-');
-  return `${day}/${month}`;
+  // Server sends "YYYY-MM-DD HH:MM" in UTC (see logic.now_iso()); convert to local time for display.
+  const d = parseServerDate(timestamp);
+  if (!d) return timestamp || '';
+  const now = new Date();
+  const isToday =
+    d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
+  if (isToday) return d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+  return d.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' });
 }
 
 function appendChatMessage(message, animate) {

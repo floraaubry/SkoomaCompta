@@ -32,3 +32,24 @@ function escapeHtml(str) {
   div.textContent = str == null ? '' : String(str);
   return div.innerHTML;
 }
+
+// Server sends naive "YYYY-MM-DD HH:MM" strings that are actually UTC (see
+// logic.now_iso()). Appending 'Z' before parsing tells JS to treat them as
+// UTC instants instead of local time, so display/comparisons convert correctly.
+function parseServerDate(str) {
+  if (!str) return null;
+  const d = new Date(String(str).replace(' ', 'T') + 'Z');
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function formatServerDateTime(str) {
+  const d = parseServerDate(str);
+  if (!d) return str || '';
+  return d.toLocaleString('fr-FR', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
