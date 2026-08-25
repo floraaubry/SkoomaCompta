@@ -607,17 +607,21 @@ function mountTransactionFilters() {
   };
 }
 
-function renderTransactions() {
+function filteredTransactions() {
   const q = (document.getElementById('transactions-search').value || '').trim().toLowerCase();
-  const container = document.getElementById('list-transactions');
-  mountTransactionFilters();
-  const items = state.snapshot.transactions
+  return state.snapshot.transactions
     .filter((t) => t.name.toLowerCase().includes(q))
     .filter((t) => transactionFilterClient === FILTER_ALL || t.clientId === transactionFilterClient)
     .filter((t) => transactionFilterEmployee === FILTER_ALL || t.employeeId === transactionFilterEmployee)
     .filter((t) => transactionFilterDirection === FILTER_ALL || t.direction === transactionFilterDirection)
     .slice()
     .reverse();
+}
+
+function renderTransactions() {
+  const container = document.getElementById('list-transactions');
+  mountTransactionFilters();
+  const items = filteredTransactions();
   container.innerHTML = '';
   if (items.length === 0) {
     container.innerHTML = '<p class="empty-hint">Aucune transaction pour le moment.</p>';
@@ -638,6 +642,78 @@ function renderTransactions() {
       </div>`;
     container.appendChild(row);
   });
+}
+
+// -------------------------------------------------------- CSV export --
+//
+// Exports whatever the transaction list currently shows (search + client/
+// employee/direction filters all apply) as a semicolon-separated CSV —
+// semicolons, not commas, because French Excel/Sheets locales treat comma
+// as the decimal separator and would otherwise misread the columns.
+// Numbers use a comma decimal point for the same reason. The impôt columns
+// come straight from each transaction's stored payroll breakdown (see
+// _compute_payroll_split in logic.py) so the exported figures always match
+// what was actually booked, not a value recomputed after settings changed.
+
+function csvField(value) {
+  const str = value == null ? '' : String(value);
+  if (/[";\n]/.test(str)) return `"${str.replace(/"/g, '""')}"`;
+  return str;
+}
+
+function csvNum(n) {
+  return round2(n).toFixed(2).replace('.', ',');
+}
+
+function transactionContentSummary(content) {
+  return (content || [])
+    .map((c) => ('productName' in c ? `${c.productName} x${c.quantity}` : `${c.label} ${c.amount}`))
+    .join(', ');
+}
+
+function taxBaseLabel() {
+  return state.snapshot.shop.taxBase === 'margin' ? 'Marge' : "Chiffre d'affaires";
+}
+
+function exportTransactionsCSV() {
+  const items = filteredTransactions();
+  const header = [
+    'Date', 'Sens', 'Client', 'Détail', 'Montant', 'Impôt', 'Base impôt',
+    'Montant après impôt', 'Employé (vendeur)', 'Part vendeur', 'Pot commun', 'Entreprise',
+  ];
+  const rows = [header];
+  items.forEach((t) => {
+    const payroll = t.payroll;
+    const vendorEmployee = payroll && payroll.vendorEmployeeId
+      ? findById(state.snapshot.employees, payroll.vendorEmployeeId)
+      : null;
+    rows.push([
+      formatServerDateTime(t.date),
+      t.direction === 'in' ? 'Entrée' : 'Sortie',
+      t.name,
+      transactionContentSummary(t.content),
+      csvNum(t.amount),
+      payroll ? csvNum(payroll.taxAmount) : '',
+      payroll ? taxBaseLabel() : '',
+      payroll ? csvNum(payroll.afterTaxAmount) : '',
+      vendorEmployee ? vendorEmployee.name : '',
+      payroll ? csvNum(payroll.vendorAmount) : '',
+      payroll ? csvNum(payroll.potCommunTotal) : '',
+      payroll ? csvNum(payroll.entrepriseAmount) : '',
+    ]);
+  });
+
+  const csv = rows.map((row) => row.map(csvField).join(';')).join('\r\n');
+  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  const stamp = new Date().toISOString().slice(0, 10);
+  link.href = url;
+  link.download = `transactions-${stamp}.csv`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
 }
 
 let contractSubTab = 'in';

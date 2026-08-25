@@ -320,6 +320,7 @@ function wireNewButtons() {
   document.getElementById('btn-new-client').addEventListener('click', () => openClientDialog());
   document.getElementById('btn-new-employee').addEventListener('click', () => openEmployeeDialog());
   document.getElementById('btn-new-transaction').addEventListener('click', () => openTransactionDialog());
+  document.getElementById('btn-export-transactions').addEventListener('click', () => exportTransactionsCSV());
   document.getElementById('btn-new-contract').addEventListener('click', () => openContractDialog());
   document.getElementById('btn-new-product').addEventListener('click', () => openProductDialog());
   document.getElementById('btn-new-recipe').addEventListener('click', () => openRecipeDialog());
