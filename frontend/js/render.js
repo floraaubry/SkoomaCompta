@@ -757,44 +757,147 @@ function renderContracts() {
   });
 }
 
+/* ---------------------------------------------------------------- stock --*/
+//
+// Products are split into two user-organized categories (Stock / Ingrédients)
+// that exist only client-side — there's no server-side category field. The
+// assignment + per-category order is persisted to localStorage (see
+// stockLayoutKey below), scoped to the connected server, so reordering one
+// device/browser doesn't affect another. See wireStockDragDrop in app.js for
+// the drag-and-drop handlers that call moveStockItem.
+
+const STOCK_CATEGORIES = ['stock', 'ingredients'];
+
+// Default category for a product the user hasn't placed yet: a finished
+// product — one that's the output of some recipe — defaults to "Stock";
+// everything else (raw materials, anything not crafted) defaults to
+// "Ingrédients". Mirrors the isRecipeOutput check dialogs.js uses to decide
+// whether a product's purchase price is recipe-derived.
+function defaultStockCategory(productId) {
+  const isFinishedProduct = state.snapshot.recipes.some((r) => r.output.productId === productId);
+  return isFinishedProduct ? 'stock' : 'ingredients';
+}
+
+function stockLayoutKey() {
+  return 'ke_stock_layout_' + (ke.url || '');
+}
+
+function loadStockLayout() {
+  try {
+    const raw = localStorage.getItem(stockLayoutKey());
+    const parsed = raw ? JSON.parse(raw) : null;
+    return {
+      stock: Array.isArray(parsed && parsed.stock) ? parsed.stock : [],
+      ingredients: Array.isArray(parsed && parsed.ingredients) ? parsed.ingredients : [],
+    };
+  } catch (e) {
+    return { stock: [], ingredients: [] };
+  }
+}
+
+function saveStockLayout(layout) {
+  try {
+    localStorage.setItem(stockLayoutKey(), JSON.stringify(layout));
+  } catch (e) {
+    // localStorage unavailable (privacy mode / quota) — reordering just won't persist.
+  }
+}
+
+// Merges the saved layout with the live product list: drops ids of deleted
+// products, and appends any product never seen before to its default
+// category (see defaultStockCategory).
+function resolvedStockLayout() {
+  const layout = loadStockLayout();
+  const allIds = new Set(state.snapshot.products.map((p) => p.id));
+  const placed = new Set();
+  const result = { stock: [], ingredients: [] };
+  STOCK_CATEGORIES.forEach((cat) => {
+    layout[cat].forEach((id) => {
+      if (allIds.has(id) && !placed.has(id)) {
+        result[cat].push(id);
+        placed.add(id);
+      }
+    });
+  });
+  state.snapshot.products.forEach((p) => {
+    if (!placed.has(p.id)) {
+      result[defaultStockCategory(p.id)].push(p.id);
+      placed.add(p.id);
+    }
+  });
+  return result;
+}
+
+// Moves productId into targetCategory, inserted just before beforeProductId
+// (or at the end when beforeProductId is null), then persists the result.
+function moveStockItem(productId, targetCategory, beforeProductId) {
+  const layout = resolvedStockLayout();
+  STOCK_CATEGORIES.forEach((cat) => {
+    layout[cat] = layout[cat].filter((id) => id !== productId);
+  });
+  const targetList = layout[targetCategory];
+  const idx = beforeProductId ? targetList.indexOf(beforeProductId) : -1;
+  if (idx === -1) targetList.push(productId);
+  else targetList.splice(idx, 0, productId);
+  saveStockLayout(layout);
+}
+
+function renderStockCard(p) {
+  const row = document.createElement('div');
+  row.className = 'card stock-card';
+  row.draggable = true;
+  row.dataset.id = p.id;
+
+  const handle = document.createElement('span');
+  handle.className = 'drag-handle';
+  handle.setAttribute('aria-hidden', 'true');
+  handle.textContent = '⠿';
+
+  const main = document.createElement('div');
+  main.className = 'card-main';
+  main.innerHTML = `<div class="card-title">${escapeHtml(p.name)}</div><div class="card-sub">${fmtGold(p.sellPrice)} septims l'unité · Achat : ${fmtGold(p.purchasePrice)} septims</div>`;
+
+  const spinboxSlot = document.createElement('div');
+  const spinbox = createSpinbox({
+    min: 0,
+    value: p.quantity,
+    step: 1,
+    onChange: (v) => {
+      ke.request('update_product', { id: p.id, quantity: v }).catch((err) => toast(err.message, 'error'));
+    },
+  });
+  spinboxSlot.appendChild(spinbox.root);
+
+  const actions = document.createElement('div');
+  actions.className = 'card-actions';
+  actions.innerHTML = `
+    <button class="btn btn-small" data-action="edit-product" data-id="${p.id}">Modifier</button>
+    <button class="btn btn-small btn-danger" data-action="delete-product" data-id="${p.id}">Supprimer</button>`;
+
+  row.appendChild(handle);
+  row.appendChild(main);
+  row.appendChild(spinboxSlot);
+  row.appendChild(actions);
+  return row;
+}
+
 function renderStock() {
   const q = (document.getElementById('stock-search').value || '').trim().toLowerCase();
-  const container = document.getElementById('list-stock');
-  const items = state.snapshot.products.filter((p) => p.name.toLowerCase().includes(q));
-  container.innerHTML = '';
-  if (items.length === 0) {
-    container.innerHTML = '<p class="empty-hint">Aucun article pour le moment.</p>';
-    return;
-  }
-  items.forEach((p) => {
-    const row = document.createElement('div');
-    row.className = 'card';
+  const layout = resolvedStockLayout();
+  const productsById = {};
+  state.snapshot.products.forEach((p) => {
+    productsById[p.id] = p;
+  });
 
-    const main = document.createElement('div');
-    main.className = 'card-main';
-    main.innerHTML = `<div class="card-title">${escapeHtml(p.name)}</div><div class="card-sub">${fmtGold(p.sellPrice)} septims l'unité · Achat : ${fmtGold(p.purchasePrice)} septims</div>`;
-
-    const spinboxSlot = document.createElement('div');
-    const spinbox = createSpinbox({
-      min: 0,
-      value: p.quantity,
-      step: 1,
-      onChange: (v) => {
-        ke.request('update_product', { id: p.id, quantity: v }).catch((err) => toast(err.message, 'error'));
-      },
-    });
-    spinboxSlot.appendChild(spinbox.root);
-
-    const actions = document.createElement('div');
-    actions.className = 'card-actions';
-    actions.innerHTML = `
-      <button class="btn btn-small" data-action="edit-product" data-id="${p.id}">Modifier</button>
-      <button class="btn btn-small btn-danger" data-action="delete-product" data-id="${p.id}">Supprimer</button>`;
-
-    row.appendChild(main);
-    row.appendChild(spinboxSlot);
-    row.appendChild(actions);
-    container.appendChild(row);
+  STOCK_CATEGORIES.forEach((cat) => {
+    const container = document.getElementById(`list-stock-${cat}`);
+    const ids = layout[cat].filter((id) => productsById[id] && productsById[id].name.toLowerCase().includes(q));
+    container.innerHTML = '';
+    if (ids.length === 0) {
+      container.innerHTML = '<p class="empty-hint">Aucun article ici.</p>';
+      return;
+    }
+    ids.forEach((id) => container.appendChild(renderStockCard(productsById[id])));
   });
 }
 

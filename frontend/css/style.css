@@ -816,6 +816,60 @@ textarea {
   flex-wrap: wrap;
 }
 
+/* ----------------------------------------------------------------- stock */
+
+.stock-columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+  align-items: start;
+}
+
+@media (max-width: 720px) {
+  .stock-columns {
+    grid-template-columns: 1fr;
+  }
+}
+
+.stock-column-title {
+  font-family: var(--font-heading);
+  font-size: 0.9rem;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 10px;
+}
+
+.stock-list {
+  min-height: 48px;
+}
+
+.stock-card {
+  cursor: grab;
+}
+
+.stock-card.dragging {
+  opacity: 0.35;
+}
+
+.stock-card:active {
+  cursor: grabbing;
+}
+
+.drag-handle {
+  color: var(--color-text-muted);
+  font-size: 1.1rem;
+  line-height: 1;
+  user-select: none;
+}
+
+.drop-indicator {
+  height: 3px;
+  border-radius: 2px;
+  background: var(--color-gold-bright);
+  margin: -5px 0;
+}
+
 /* ------------------------------------------------------------------ home */
 
 .home-profile {

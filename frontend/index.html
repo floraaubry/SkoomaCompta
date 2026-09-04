@@ -146,7 +146,16 @@
         <input type="search" class="search-input" id="stock-search" placeholder="Rechercher un article...">
         <button class="btn btn-primary" id="btn-new-product">+ Nouveau produit</button>
       </div>
-      <div class="list" id="list-stock"></div>
+      <div class="stock-columns" id="list-stock">
+        <div class="stock-column">
+          <h3 class="stock-column-title">Stock</h3>
+          <div class="list stock-list" id="list-stock-stock" data-category="stock"></div>
+        </div>
+        <div class="stock-column">
+          <h3 class="stock-column-title">Ingrédients</h3>
+          <div class="list stock-list" id="list-stock-ingredients" data-category="ingredients"></div>
+        </div>
+      </div>
     </section>
 
     <section id="tab-recettes" class="tab-pane">

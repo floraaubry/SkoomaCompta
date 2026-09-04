@@ -32,6 +32,7 @@ document.addEventListener('DOMContentLoaded', () => {
   wireSearchInputs();
   wireNewButtons();
   wireListActions();
+  wireStockDragDrop();
   wireLogout();
   wireManageUsers();
   initChat();
@@ -303,6 +304,78 @@ function wireContractSubtabs() {
       btn.classList.add('active');
       contractSubTab = btn.dataset.subtab;
       renderContracts();
+    });
+  });
+}
+
+/* ---------------------------------------------------- stock drag & drop --*/
+//
+// Native HTML5 drag-and-drop, delegated on each of the two stock columns
+// (wired once — the lists are re-rendered often, but listeners stay on the
+// stable container). See resolvedStockLayout/moveStockItem in render.js for
+// the persisted-order data model.
+
+let stockDragProductId = null;
+
+function stockCardAfterPoint(list, y) {
+  const cards = [...list.querySelectorAll('.stock-card:not(.dragging)')];
+  let closest = null;
+  let closestOffset = Number.NEGATIVE_INFINITY;
+  cards.forEach((card) => {
+    const rect = card.getBoundingClientRect();
+    const offset = y - rect.top - rect.height / 2;
+    if (offset < 0 && offset > closestOffset) {
+      closestOffset = offset;
+      closest = card;
+    }
+  });
+  return closest;
+}
+
+function clearStockDropIndicators() {
+  document.querySelectorAll('.stock-list .drop-indicator').forEach((el) => el.remove());
+}
+
+function showStockDropIndicator(list, beforeCard) {
+  clearStockDropIndicators();
+  const indicator = document.createElement('div');
+  indicator.className = 'drop-indicator';
+  if (beforeCard) list.insertBefore(indicator, beforeCard);
+  else list.appendChild(indicator);
+}
+
+function wireStockDragDrop() {
+  document.querySelectorAll('.stock-list').forEach((list) => {
+    list.addEventListener('dragstart', (e) => {
+      const card = e.target.closest('.stock-card');
+      if (!card) return;
+      stockDragProductId = card.dataset.id;
+      card.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', card.dataset.id);
+    });
+
+    list.addEventListener('dragend', () => {
+      document.querySelectorAll('.stock-card.dragging').forEach((el) => el.classList.remove('dragging'));
+      clearStockDropIndicators();
+      stockDragProductId = null;
+    });
+
+    list.addEventListener('dragover', (e) => {
+      if (!stockDragProductId) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      showStockDropIndicator(list, stockCardAfterPoint(list, e.clientY));
+    });
+
+    list.addEventListener('drop', (e) => {
+      if (!stockDragProductId) return;
+      e.preventDefault();
+      const afterCard = stockCardAfterPoint(list, e.clientY);
+      moveStockItem(stockDragProductId, list.dataset.category, afterCard ? afterCard.dataset.id : null);
+      stockDragProductId = null;
+      clearStockDropIndicators();
+      renderStock();
     });
   });
 }
