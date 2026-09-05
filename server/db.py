@@ -20,12 +20,13 @@ DEFAULTS = {
         "shopName": "", "balance": 0, "setupComplete": False,
         # Sale split: taxPercent of the sale's MARGIN (total minus cost of
         # goods sold, never the total itself) is set aside — added to
-        # taxesOwed, never to balance — then vendorPercent of what's left of
-        # the total after tax goes to the employee who recorded the sale, and
-        # potCommunPercent of what's left after that is split evenly across
-        # every employee that exists at the time of the sale (the rest stays
-        # in the shop balance as company profit). See logic.py's
-        # _compute_payroll_split for the actual math.
+        # taxesOwed, and stays in balance as cash on hand until pay_taxes
+        # pays it out — then vendorPercent of what's left of the total after
+        # tax goes to the employee who recorded the sale, and potCommunPercent
+        # of what's left after that is split evenly across every employee
+        # that exists at the time of the sale (the rest stays in the shop
+        # balance as company profit). See logic.py's _compute_payroll_split
+        # for the actual math.
         "taxPercent": 18, "vendorPercent": 50, "potCommunPercent": 25,
         # taxBase picks what taxPercent is applied to: "ca" (the raw sale
         # total — the default) or "margin" (total minus cost of goods sold).
@@ -35,6 +36,10 @@ DEFAULTS = {
         # the weekly history of past pay_taxes calls. taxesSince marks when
         # the current tally started accruing (mirrors employee.balanceSince).
         "taxesOwed": 0, "taxesSince": None, "taxHistory": [],
+        # One-time migration marker — see normalize_shop below. False means
+        # this shop's balance still predates the switch to keeping tax money
+        # in balance until it's actually paid out.
+        "balanceIncludesTaxes": False,
     },
     "users": [],
     "employees": [],
@@ -73,9 +78,21 @@ def default_collection(name):
 
 def normalize_shop(shop):
     """Backfills payroll-split fields onto shop dicts saved before they existed
-    (both on normal load and when restoring an older backup)."""
+    (both on normal load and when restoring an older backup).
+
+    Also runs the one-time balance/taxesOwed migration: balance used to
+    exclude taxesOwed money (set aside the instant a sale earned it, never
+    added to balance); it now includes it, only removed from balance when
+    pay_taxes actually pays it out (see logic._compute_payroll_split and
+    logic.pay_taxes). A shop saved under the old model needs its outstanding
+    taxesOwed folded back into balance once so the till total isn't
+    short-changed — guarded by balanceIncludesTaxes so it can never double-
+    apply, including across a restored pre-migration backup."""
     for key, default in DEFAULTS["shop"].items():
         shop.setdefault(key, default)
+    if not shop.get("balanceIncludesTaxes"):
+        shop["balance"] = round(shop["balance"] + shop["taxesOwed"], 2)
+        shop["balanceIncludesTaxes"] = True
     return shop
 
 

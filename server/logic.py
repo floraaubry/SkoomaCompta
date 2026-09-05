@@ -519,8 +519,9 @@ def _content_summary(content):
 # Every sale (direction "in") splits its total between four buckets, applied
 # in sequence: Impôts (taxPercent of either the sale's MARGIN — total minus
 # the cost of goods sold — or the raw total/CA, depending on shop.taxBase —
-# added to shop.taxesOwed but NOT to balance), Part Vendeur (vendorPercent of
-# what's left of the total after tax,
+# added to shop.taxesOwed AND to balance, since the cash is still sitting in
+# the till until it's actually paid to the state), Part Vendeur (vendorPercent
+# of what's left of the total after tax,
 # credited to the employee linked to the acting user), then whatever remains
 # splits between Entreprise and Pot Commun (potCommunPercent of it, split
 # evenly across every employee that currently exists — Entreprise is the
@@ -531,10 +532,8 @@ def _content_summary(content):
 # so delete_transaction can reverse it exactly, employee by employee (and
 # taxesOwed), even if the employee roster has changed since.
 #
-# taxesOwed is a separate running tally (see pay_taxes) purely for reporting/
-# bookkeeping — money set aside for tax was already excluded from balance the
-# moment it was earned, so paying it never touches balance again; it only
-# resets the tally and archives it into shop.taxHistory.
+# taxesOwed is a running tally of tax money still sitting in balance,
+# unpaid — see pay_taxes, which is what actually removes it from balance.
 
 def _split_evenly(total, employees):
     """Splits `total` septims evenly across `employees`, in integer centimes,
@@ -579,7 +578,7 @@ def _compute_payroll_split(db, total, acting_user, cogs=0):
         employee = find_employee(db, share["employeeId"])
         employee["balance"] = round2(employee.get("balance", 0) + share["amount"])
 
-    db.shop["balance"] = round2(db.shop["balance"] + after_tax)
+    db.shop["balance"] = round2(db.shop["balance"] + total)
     db.shop["taxesOwed"] = round2(db.shop.get("taxesOwed", 0) + tax_amount)
     if tax_amount and not db.shop.get("taxesSince"):
         db.shop["taxesSince"] = now_iso()
@@ -596,7 +595,8 @@ def _compute_payroll_split(db, total, acting_user, cogs=0):
 
 
 def _reverse_payroll_split(db, payroll):
-    db.shop["balance"] = round2(db.shop["balance"] - payroll["afterTaxAmount"])
+    total = round2(payroll["afterTaxAmount"] + payroll.get("taxAmount", 0))
+    db.shop["balance"] = round2(db.shop["balance"] - total)
     db.shop["taxesOwed"] = max(0, round2(db.shop.get("taxesOwed", 0) - payroll.get("taxAmount", 0)))
     if payroll.get("vendorEmployeeId"):
         employee = find_employee_or_none(db, payroll["vendorEmployeeId"])
@@ -663,10 +663,9 @@ def update_payroll_settings(db, payload, acting_user):
 
 
 def pay_taxes(db, payload, acting_user):
-    """Archives the current taxesOwed tally into taxHistory and resets it to
-    zero. Doesn't touch balance: that money was already excluded from balance
-    the moment each sale set it aside (see _compute_payroll_split) — this is
-    purely a bookkeeping record of "impôts comptabilisés this week"."""
+    """Archives the current taxesOwed tally into taxHistory, resets it to
+    zero, and removes that amount from balance — the cash was sitting in the
+    till (see _compute_payroll_split) until this actually pays it out."""
     total = round2(db.shop.get("taxesOwed", 0))
     if total <= 0:
         raise LogicError("Aucun montant d'impôts à comptabiliser.")
@@ -680,6 +679,7 @@ def pay_taxes(db, payload, acting_user):
         "periodEnd": paid_at,
         "amount": total,
     })
+    db.shop["balance"] = round2(db.shop["balance"] - total)
     db.shop["taxesOwed"] = 0
     db.shop["taxesSince"] = None
 

@@ -218,6 +218,8 @@ def generate_testdb():
         return shares
 
     balance = 10000
+    taxes_owed = 0
+    taxes_since = None
     transactions = []
     for direction, client_key, employee_key, date, items in plan:
         c = clients[client_key]
@@ -245,7 +247,10 @@ def generate_testdb():
                 emp = next(e for e in employees.values() if e["id"] == share["employeeId"])
                 emp["balance"] = round(emp["balance"] + share["amount"], 2)
 
-            balance += after_tax
+            balance += total
+            taxes_owed = round(taxes_owed + tax_amount, 2)
+            if tax_amount and taxes_since is None:
+                taxes_since = date
             payroll = {
                 "taxAmount": tax_amount, "afterTaxAmount": after_tax,
                 "vendorEmployeeId": vendor_employee["id"], "vendorAmount": vendor_amount,
@@ -265,6 +270,7 @@ def generate_testdb():
         "shopName": "La Troisième Lune", "balance": balance, "setupComplete": True,
         "taxPercent": TAX_PERCENT, "vendorPercent": VENDOR_PERCENT, "potCommunPercent": POT_COMMUN_PERCENT,
         "applySplitToContracts": False,
+        "taxesOwed": taxes_owed, "taxesSince": taxes_since, "taxHistory": [],
     }
 
     logs = [{

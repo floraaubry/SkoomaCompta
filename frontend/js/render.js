@@ -426,6 +426,9 @@ function renderTaxesSection() {
   const section = document.createElement('div');
   section.className = 'home-admin-recap';
 
+  const canPay = owed > 0 && owed <= shop.balance;
+  const payTitle = owed > 0 && owed > shop.balance ? ' title="Fonds insuffisants dans la caisse"' : '';
+
   const historyRows = history.length
     ? history
         .map(
@@ -451,11 +454,49 @@ function renderTaxesSection() {
       </div>
       <div class="card-actions">
         <div class="stat-value accent">${fmtGold(owed)} septims</div>
-        <button class="btn btn-small btn-accent" data-action="pay-taxes"${owed > 0 ? '' : ' disabled'}>Payer</button>
+        <button class="btn btn-small btn-accent" data-action="pay-taxes"${canPay ? '' : ' disabled'}${payTitle}>Payer</button>
       </div>
     </div>
     <h3 class="home-taxes-history-title">Historique des semaines</h3>
     <div class="list">${historyRows}</div>`;
+  return section;
+}
+
+// Waterfall recap of the shop's cash, walking the same sequence as a sale's
+// split (see logic._compute_payroll_split): `balance` is the raw till
+// total, which includes tax money not yet paid to the state (see pay_taxes)
+// and vendor/pot-commun shares already earmarked on employees' own balances
+// but not yet paid out (see pay_employee) — both sit in the till as cash on
+// hand until their respective "Payer" button removes them. Vendor and pot
+// commun are both wages owed to employees, so they're shown as one
+// "Après salaires" step rather than split apart. What's left at the end is
+// the money genuinely free for the shop/Entreprise.
+function renderBalanceRecap() {
+  const shop = state.snapshot.shop;
+  const balance = shop.balance || 0;
+  const taxesOwed = shop.taxesOwed || 0;
+  const salariesOwed = (state.snapshot.employees || []).reduce((sum, e) => sum + (e.balance || 0), 0);
+  const afterTaxes = round2(balance - taxesOwed);
+  const afterSalaries = round2(afterTaxes - salariesOwed);
+
+  const section = document.createElement('div');
+  section.className = 'home-admin-recap';
+  section.innerHTML = `
+    <h3>Récapitulatif de la caisse</h3>
+    <div class="home-stats-row">
+      <div class="stat-tile">
+        <div class="stat-label">Solde de la caisse</div>
+        <div class="stat-value">${fmtGold(balance)} septims</div>
+      </div>
+      <div class="stat-tile">
+        <div class="stat-label">Après impôts</div>
+        <div class="stat-value">${fmtGold(afterTaxes)} septims</div>
+      </div>
+      <div class="stat-tile">
+        <div class="stat-label">Après salaires</div>
+        <div class="stat-value accent">${fmtGold(afterSalaries)} septims</div>
+      </div>
+    </div>`;
   return section;
 }
 
@@ -501,6 +542,7 @@ function renderHome() {
     return;
   }
   if (!emp) {
+    container.appendChild(renderBalanceRecap());
     container.appendChild(renderTaxesSection());
     container.appendChild(renderEmployeesRecap());
     return;
@@ -549,6 +591,7 @@ function renderHome() {
   container.appendChild(profile);
 
   if (isAdmin) {
+    container.appendChild(renderBalanceRecap());
     container.appendChild(renderTaxesSection());
     container.appendChild(renderEmployeesRecap());
   }
