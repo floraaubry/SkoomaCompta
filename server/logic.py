@@ -723,13 +723,14 @@ def create_transaction(db, payload, acting_user):
                 f"Stock insuffisant pour {product['name']} : {product['quantity']} en stock, "
                 f"{requested_by_product[product['id']]} demandés."
             )
+        unit_price = product["sellPrice"] if direction == "in" else product["purchasePrice"]
         resolved.append({
             "productId": product["id"],
             "productName": product["name"],
             "quantity": quantity,
-            "unitPrice": product["sellPrice"],
+            "unitPrice": unit_price,
             "unitCost": product["purchasePrice"],
-            "lineTotal": round2(product["sellPrice"] * quantity),
+            "lineTotal": round2(unit_price * quantity),
         })
 
     subtotal = round2(sum(line["lineTotal"] for line in resolved))
@@ -933,16 +934,18 @@ def checkout_contract(db, payload, acting_user):
     contract = find_contract(db, payload.get("id"))
     client = find_client(db, contract["clientId"])
 
+    # contract type "in" = achat (we pay, use purchasePrice); "out" = vente (client pays, use sellPrice).
     resolved = []
     for item in contract["items"]:
         product = find_product(db, item["productId"])
+        unit_price = product["sellPrice"] if contract["type"] == "out" else product["purchasePrice"]
         resolved.append({
             "productId": product["id"],
             "productName": product["name"],
             "quantity": item["quantity"],
-            "unitPrice": product["sellPrice"],
+            "unitPrice": unit_price,
             "unitCost": product["purchasePrice"],
-            "lineTotal": round2(product["sellPrice"] * item["quantity"]),
+            "lineTotal": round2(unit_price * item["quantity"]),
         })
     subtotal = round2(sum(line["lineTotal"] for line in resolved))
     discount_percent = contract.get("discountPercent", 0)

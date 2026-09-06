@@ -378,10 +378,11 @@ document.querySelectorAll('input[name="direction"]').forEach((radio) => {
 
 function updateTransactionTotal() {
   let subtotal = 0;
+  const direction = transactionDirection();
   transactionItemRows.forEach((r) => {
     const id = r.combobox.getValue();
     const product = id ? findById(state.snapshot.products, id) : null;
-    if (product) subtotal += product.sellPrice * r.spinbox.getValue();
+    if (product) subtotal += (direction === 'in' ? product.sellPrice : product.purchasePrice) * r.spinbox.getValue();
   });
   const adjustmentPercent = transactionAdjustmentSpinbox ? transactionAdjustmentSpinbox.getValue() : 0;
   const total = subtotal + (subtotal * adjustmentPercent) / 100;
@@ -558,12 +559,17 @@ function addContractItemRow(initialProductId, initialQuantity) {
 
 document.getElementById('btn-add-contract-item').addEventListener('click', () => addContractItemRow());
 
+document.querySelectorAll('input[name="contract-type"]').forEach((radio) => {
+  radio.addEventListener('change', updateContractTotal);
+});
+
 function updateContractTotal() {
   let subtotal = 0;
+  const type = contractType();
   contractItemRows.forEach((r) => {
     const id = r.combobox.getValue();
     const product = id ? findById(state.snapshot.products, id) : null;
-    if (product) subtotal += product.sellPrice * r.spinbox.getValue();
+    if (product) subtotal += (type === 'out' ? product.sellPrice : product.purchasePrice) * r.spinbox.getValue();
   });
   const discountPercent = contractDiscountSpinbox ? contractDiscountSpinbox.getValue() : 0;
   const total = subtotal - Math.round((subtotal * discountPercent) / 100);
@@ -621,7 +627,8 @@ function openContractCheckoutDialog(contract) {
   itemsEl.innerHTML = '';
   contract.items.forEach((it) => {
     const product = findById(state.snapshot.products, it.productId);
-    subtotal += product ? product.sellPrice * it.quantity : 0;
+    const unitPrice = product ? (contract.type === 'out' ? product.sellPrice : product.purchasePrice) : 0;
+    subtotal += unitPrice * it.quantity;
     const stockDelta = contract.type === 'in' ? it.quantity : -it.quantity;
     const line = document.createElement('div');
     line.className = 'transaction-detail-item';
